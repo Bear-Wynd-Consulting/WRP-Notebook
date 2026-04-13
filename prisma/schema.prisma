@@ -1,0 +1,207 @@
+// WRP Notebook — Prisma Schema
+// Neon serverless PostgreSQL + pgvector
+
+generator client {
+  provider        = "prisma-client"
+  output          = "../app/generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [vector]
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Visibility {
+  PRIVATE  // only owner via UI
+  INTERNAL // any WRP staff API key
+  PUBLIC   // external API keys + website
+}
+
+enum ApiScope {
+  ADMIN    // full CRUD + API key management
+  INTERNAL // full CRUD on allowed notebooks
+  EXTERNAL // read-only on public notebooks
+}
+
+enum SourceStatus {
+  PENDING
+  PROCESSING
+  READY
+  ERROR
+}
+
+// ─── Core Models ──────────────────────────────────────────────────────────────
+
+model Notebook {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  visibility  Visibility @default(PRIVATE)
+  ownerId     String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  sources      NotebookSource[]
+  notes        NotebookNote[]
+  chatSessions ChatSession[]
+
+  @@index([ownerId])
+  @@index([visibility])
+  @@index([deletedAt])
+}
+
+model Source {
+  id         String       @id @default(cuid())
+  type       String       // pdf, url, youtube, audio, text
+  title      String?
+  content    String?      // extracted full text
+  summary    String?
+  metadata   Json?
+  status     SourceStatus @default(PENDING)
+  filePath   String?
+  blobUrl    String?      // private Vercel Blob URL — NEVER exposed to clients
+  mimeType   String?      // validated MIME type
+  fileSize   Int?         // bytes
+  uploadedBy String?      // userId who uploaded
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  notebooks NotebookSource[]
+  chunks    SourceChunk[]
+  insights  SourceInsight[]
+}
+
+model SourceChunk {
+  id         String  @id @default(cuid())
+  sourceId   String
+  source     Source  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  content    String
+  embedding  Unsupported("vector(1536)")?
+  chunkIndex Int
+
+  @@index([sourceId])
+}
+
+model SourceInsight {
+  id          String   @id @default(cuid())
+  sourceId    String
+  source      Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  insightType String   // summary, key_points, questions, etc.
+  content     String
+  createdAt   DateTime @default(now())
+
+  @@index([sourceId])
+}
+
+model Note {
+  id        String    @id @default(cuid())
+  title     String?
+  content   String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  notebooks NotebookNote[]
+
+  @@index([deletedAt])
+}
+
+model ChatSession {
+  id         String      @id @default(cuid())
+  notebookId String
+  notebook   Notebook    @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  title      String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  messages ChatMessage[]
+
+  @@index([notebookId])
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  role          String      // user, assistant, system
+  content       String
+  citations     Json?       // array of source chunk IDs + snippets
+  createdAt     DateTime    @default(now())
+
+  @@index([chatSessionId])
+}
+
+// ─── Join Tables ──────────────────────────────────────────────────────────────
+
+model NotebookSource {
+  notebookId String
+  sourceId   String
+  notebook   Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  source     Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@id([notebookId, sourceId])
+}
+
+model NotebookNote {
+  notebookId String
+  noteId     String
+  notebook   Notebook @relation(fields: [notebookId], references: [id], onDelete: Cascade)
+  note       Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@id([notebookId, noteId])
+}
+
+// ─── API Authentication ───────────────────────────────────────────────────────
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String
+  keyHash     String    @unique // SHA-256 hash — NEVER store plaintext
+  keyPrefix   String             // first 12 chars for identification (e.g. "wrp_k1_a3b4c5")
+  scope       ApiScope  @default(EXTERNAL)
+  permissions String[]  @default([]) // ["notebooks:read", "search:execute"]
+  notebookIds String[]  @default([]) // restrict to specific notebook IDs (empty = all allowed)
+  ownerId     String
+  rateLimit   Int       @default(100) // requests per minute
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  lastUsedIp  String?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  @@index([keyHash])
+  @@index([keyPrefix])
+}
+
+// ─── Audit Logging ────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // "notebook.create", "source.delete", "api_key.revoke"
+  actorType String   // "user", "api_key", "system"
+  actorId   String
+  resource  String   // "notebook:cuid123"
+  metadata  Json?    // request details, IP, user agent
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([resource])
+  @@index([createdAt])
+}
+
+// ─── AI Provider Credentials ─────────────────────────────────────────────────
+
+model Credential {
+  id             String   @id @default(cuid())
+  name           String
+  provider       String   // openai, anthropic, elevenlabs, etc.
+  encryptedValue String   // AES-256-GCM encrypted — iv:authTag:ciphertext
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([provider, name])
+}

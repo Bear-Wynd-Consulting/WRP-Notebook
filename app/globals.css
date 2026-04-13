@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* ── WRP Brand Palette (Western University Purple) ── */
+:root {
+  --wrp-primary:    #4F2683;  /* Western Purple */
+  --wrp-secondary:  #807F83;  /* Western Grey */
+  --wrp-accent:     #E3D3F5;  /* Light purple tint */
+  --wrp-dark:       #2C1650;  /* Dark purple */
+  --wrp-surface:    #F8F6FB;  /* Off-white purple tint */
+  --wrp-success:    #2E7D32;  /* Green for status */
+  --wrp-warning:    #F9A825;  /* Amber for alerts */
+  --wrp-text:       #1A1A2E;  /* Near-black */
+  --wrp-text-muted: #6B6B80;  /* Muted grey */
+
+  --background: var(--wrp-surface);
+  --foreground: var(--wrp-text);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--wrp-primary);
+  --color-primary-dark: var(--wrp-dark);
+  --color-accent: var(--wrp-accent);
+  --color-muted: var(--wrp-text-muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: var(--wrp-dark);
+    --foreground: #f0ecf8;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* ── Focus styles ── */
+*:focus-visible {
+  outline: 2px solid var(--wrp-primary);
+  outline-offset: 2px;
+}
