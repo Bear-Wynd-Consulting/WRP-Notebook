@@ -34,8 +34,13 @@ const globalForProperty = globalThis as unknown as {
   propertyDb: PrismaClient | undefined;
 };
 
-export const propertyDb =
-  globalForProperty.propertyDb ?? createPropertyClient();
-
-if (process.env.NODE_ENV !== "production")
-  globalForProperty.propertyDb = propertyDb;
+/**
+ * Lazy accessor — the client is created on first call, not at import time.
+ * This prevents build-time crashes when PROPERTY_DB_URL isn't set yet.
+ */
+export function getPropertyDb(): PrismaClient {
+  if (!globalForProperty.propertyDb) {
+    globalForProperty.propertyDb = createPropertyClient();
+  }
+  return globalForProperty.propertyDb;
+}

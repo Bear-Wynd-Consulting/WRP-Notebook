@@ -1,5 +1,5 @@
 /**
- * Next.js middleware — runs on every matched request.
+ * Next.js proxy (formerly middleware) — runs on every matched request.
  *
  * Enforces:
  * - Request body size limits (1MB JSON, 50MB file uploads)
@@ -17,7 +17,7 @@ const ALLOWED_ORIGINS = [
 const MAX_JSON_BODY = 1 * 1024 * 1024; // 1MB
 const MAX_UPLOAD_BODY = 50 * 1024 * 1024; // 50MB
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   // ── CORS pre-flight for API routes ────────────────────────────────────────

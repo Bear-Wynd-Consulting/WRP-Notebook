@@ -20,7 +20,7 @@
  * PATTERN: every function here must be read-only (findMany / findUnique / count).
  * Never import propertyDb in a route handler directly — always go through here.
  */
-import { propertyDb } from "@/lib/db/property-client";
+import { getPropertyDb } from "@/lib/db/property-client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Replace these with the actual generated Prisma types once you run prisma generate.
