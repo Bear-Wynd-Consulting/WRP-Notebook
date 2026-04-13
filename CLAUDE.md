@@ -168,3 +168,70 @@ MIT Attribution: Footer must include "Powered by Open Notebook" per MIT license.
 **Property Management App**: `POST /api/v1/notebooks/{id}/sources` (upload docs) + `POST /api/v1/notebooks/{id}/search`
 
 **WRP Website**: `GET /api/v1/notebooks/{id}/notes` + `POST /api/v1/notebooks/{id}/ask`
+
+---
+
+## Current Status & Pending Tasks
+
+**Branch**: `claude/plan-wrp-notebook-fork-UiOD9` (all app code here — not yet merged to main)
+
+**Build**: `next build` passes cleanly. All 24 routes compile. TypeScript: zero errors.
+
+### Immediate Next Steps (in order)
+
+#### 1. Apply Database Schema to Neon
+Run `prisma/migrations/20260412000000_initial/migration.sql` in the Neon SQL Editor.
+- Neon project: `chris/org-broad-violet-23323853`
+- Database: `neondb`
+- Creates all WRP Notebook tables + pgvector extension
+
+#### 2. Deploy to Vercel
+- Vercel team: `bear-wynd-consultings-projects`
+- Import repo at vercel.com/new → set production branch to `claude/plan-wrp-notebook-fork-UiOD9`
+- Required env vars (minimum to boot):
+  - `DATABASE_URL` — Neon pooler URL (in .env.local)
+  - `NEXTAUTH_SECRET` — `openssl rand -base64 32`
+  - `NEXTAUTH_URL` — your Vercel app URL
+  - `CREDENTIAL_ENCRYPTION_KEY` — `openssl rand -hex 32`
+- Optional (features degrade gracefully without these):
+  - `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` — AI chat/embeddings
+  - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` — rate limiting
+  - `INNGEST_SIGNING_KEY`, `INNGEST_EVENT_KEY` — background jobs
+  - `BLOB_READ_WRITE_TOKEN` — file uploads
+
+#### 3. Wire Up Existing Property Management Tables (read-only)
+The existing Neon database has WRP property/tenant/building data.
+Steps:
+1. Run `scripts/setup-readonly-role.sql` in Neon SQL Editor (creates `wrp_notebook_ro` role)
+2. Run `npx prisma db pull` with `PROPERTY_DB_URL` set to the read-only user's connection string
+3. Copy the introspected model definitions into `prisma/schema.prisma` (mark with `// @readonly`)
+4. Run `npx prisma generate`
+5. Fill in the placeholder functions in `lib/db/property-queries.ts`
+6. Add `PROPERTY_DB_URL` to Vercel env vars
+
+#### 4. Create Initial Notebooks
+After deployment, use the admin API to create the three core notebooks:
+```bash
+# Set your ADMIN API key first (via POST /api/v1/admin/api-keys)
+curl -X POST https://<your-app>/api/v1/notebooks \
+  -H "Authorization: Bearer <admin-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Property Tours","description":"Content for the WRP property tour app","visibility":"INTERNAL"}'
+```
+
+#### 5. Merge to Main
+```bash
+git checkout main
+git merge claude/plan-wrp-notebook-fork-UiOD9
+git push origin main
+```
+
+### Key Files for Reference
+| Task | File |
+|------|------|
+| Database schema | `prisma/schema.prisma` |
+| Initial migration SQL | `prisma/migrations/20260412000000_initial/migration.sql` |
+| Read-only role setup | `scripts/setup-readonly-role.sql` |
+| Property queries (stub) | `lib/db/property-queries.ts` |
+| Vercel config | `vercel.json` |
+| Env var template | `.env.example` |
