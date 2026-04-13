@@ -1,8 +1,33 @@
 /**
- * Login page — custom NextAuth.js v5 sign-in form.
+ * Login page — NextAuth.js v5 sign-in via Server Action.
  * Auth errors redirect here (never expose error details in URL).
  */
-export default function LoginPage() {
+import { signIn } from "@/lib/auth/auth-config";
+import { AuthError } from "next-auth";
+import { redirect } from "next/navigation";
+
+async function loginAction(formData: FormData) {
+  "use server";
+  try {
+    await signIn("credentials", {
+      email:       formData.get("email"),
+      password:    formData.get("password"),
+      redirectTo:  "/notebooks",
+    });
+  } catch (err) {
+    if (err instanceof AuthError) {
+      redirect(`/login?error=invalid`);
+    }
+    throw err; // re-throw redirect
+  }
+}
+
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   return (
     <main className="min-h-screen flex items-center justify-center bg-[var(--wrp-surface)]">
       <div className="w-full max-w-sm space-y-8 px-6">
@@ -20,22 +45,23 @@ export default function LoginPage() {
           >
             WRP Knowledge Hub
           </h1>
-          <p className="mt-1 text-sm" style={{ color: "var(--wrp-text-muted)" }}>
+          <p className="mt-1 text-sm" style={{ color: "var(--wrp-secondary)" }}>
             Sign in to access your notebooks
           </p>
         </div>
 
-        {/* Sign-in form — wire up NextAuth signIn() action */}
-        <form
-          className="space-y-4"
-          action="/api/auth/signin/credentials"
-          method="POST"
-        >
+        {error && (
+          <p className="text-sm text-center text-red-600">
+            Invalid email or password.
+          </p>
+        )}
+
+        <form action={loginAction} className="space-y-4">
           <div>
             <label
               htmlFor="email"
               className="block text-sm font-medium mb-1"
-              style={{ color: "var(--wrp-text)" }}
+              style={{ color: "var(--wrp-primary)" }}
             >
               Email
             </label>
@@ -45,7 +71,7 @@ export default function LoginPage() {
               type="email"
               autoComplete="email"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
               style={{ borderColor: "var(--wrp-secondary)" }}
             />
           </div>
@@ -54,7 +80,7 @@ export default function LoginPage() {
             <label
               htmlFor="password"
               className="block text-sm font-medium mb-1"
-              style={{ color: "var(--wrp-text)" }}
+              style={{ color: "var(--wrp-primary)" }}
             >
               Password
             </label>
@@ -64,7 +90,7 @@ export default function LoginPage() {
               type="password"
               autoComplete="current-password"
               required
-              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none"
+              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2"
               style={{ borderColor: "var(--wrp-secondary)" }}
             />
           </div>
@@ -80,7 +106,7 @@ export default function LoginPage() {
 
         <p
           className="text-center text-xs"
-          style={{ color: "var(--wrp-text-muted)" }}
+          style={{ color: "var(--wrp-secondary)" }}
         >
           Powered by{" "}
           <a

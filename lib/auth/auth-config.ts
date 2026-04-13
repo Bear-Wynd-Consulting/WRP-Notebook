@@ -6,6 +6,9 @@
  */
 import NextAuth from "next-auth";
 import type { NextAuthConfig } from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import { compare } from "bcryptjs";
+import { prisma } from "@/lib/db/client";
 
 declare module "next-auth" {
   interface User {
@@ -56,8 +59,22 @@ const authConfig: NextAuthConfig = {
     error: "/login", // Redirect auth errors to login — never expose details
   },
   providers: [
-    // Add providers here (e.g., GitHub, Google, Credentials for username/password)
-    // Example Credentials provider for staff login is added in app/auth.ts
+    Credentials({
+      credentials: {
+        email:    { label: "Email",    type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email as string },
+        });
+        if (!user) return null;
+        const valid = await compare(credentials.password as string, user.passwordHash);
+        if (!valid) return null;
+        return { id: user.id, email: user.email, role: user.role };
+      },
+    }),
   ],
 };
 
