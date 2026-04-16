@@ -47,6 +47,11 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "10mb", // Allow PDF uploads via Server Actions
+    },
+  },
   async headers() {
     return [
       {
