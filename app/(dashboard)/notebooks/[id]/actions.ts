@@ -10,6 +10,14 @@
  *  youtube  → URL stored in metadata  → Inngest fetches transcript → chunk + embed
  *  pdf      → uploaded to Vercel Blob → Inngest downloads + pdf-parse → chunk + embed
  *  audio    → uploaded to Vercel Blob → Inngest transcribes (Whisper) → chunk + embed
+ *
+ * Source management is available for all notebook visibility types
+ * (PRIVATE, INTERNAL, PUBLIC). Visibility controls API access, not
+ * who can add sources via the dashboard.
+ *
+ * NOTE: redirect() must never be called inside a try/catch block.
+ * It throws NEXT_REDIRECT internally; calling it inside catch causes
+ * the redirect to be swallowed by the client's error handler.
  */
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -30,7 +38,7 @@ async function dispatchProcessing(sourceId: string) {
     await inngest.send({ name: "source/uploaded", data: { sourceId } });
   } catch (err) {
     console.error("Inngest dispatch failed for source", sourceId, err);
-    // Source record is saved with PENDING status — it can be re-queued manually.
+    // Source record is saved with PENDING status — can be re-queued manually.
   }
 }
 
@@ -39,9 +47,7 @@ async function dispatchProcessing(sourceId: string) {
 /**
  * Add a URL, YouTube, or plain-text source to a notebook.
  *
- * - text:    content stored in Source.content; Inngest chunks and embeds it directly.
- * - url:     URL stored in Source.metadata.url; Inngest fetches and extracts the text.
- * - youtube: URL stored in Source.metadata.url; Inngest fetches the transcript.
+ * Works for all notebook visibility types (PRIVATE, INTERNAL, PUBLIC).
  */
 export async function addTextOrUrlSource(notebookId: string, formData: FormData) {
   const session = await auth();
@@ -64,22 +70,24 @@ export async function addTextOrUrlSource(notebookId: string, formData: FormData)
 
   const data = parsed.data;
 
+  // Validate URL outside a try/catch — redirect() must not be called inside catch.
+  let urlError = false;
   if ((data.type === "url" || data.type === "youtube") && data.url) {
     try {
       await validateIngestUrl(data.url);
     } catch {
-      redirect(`/notebooks/${notebookId}?source_error=url`);
+      urlError = true;
     }
   }
+  if (urlError) redirect(`/notebooks/${notebookId}?source_error=url`);
 
   const isUrlType = data.type === "url" || data.type === "youtube";
 
   const source = await prisma.source.create({
     data: {
       type: data.type,
-      // For URL types: use supplied title or derive from hostname
       title: data.title ?? (data.url ? new URL(data.url).hostname : "Text"),
-      // Text sources: content stored directly. URL/YouTube: fetched by Inngest.
+      // Text: store content directly. URL/YouTube: Inngest will fetch it.
       content: data.type === "text" ? data.text : undefined,
       // URL stored in metadata so the Inngest job knows where to fetch from.
       metadata: isUrlType && data.url ? { url: data.url } : undefined,
@@ -107,12 +115,18 @@ export async function addTextOrUrlSource(notebookId: string, formData: FormData)
 /**
  * Add a PDF or audio file source to a notebook.
  *
- * - pdf:   file uploaded to Vercel Blob (blobUrl); Inngest downloads + pdf-parse.
- * - audio: file uploaded to Vercel Blob (blobUrl); Inngest transcribes with Whisper.
+ * Works for all notebook visibility types (PRIVATE, INTERNAL, PUBLIC).
+ * Requires BLOB_READ_WRITE_TOKEN to be set in the environment.
  */
 export async function addFileSource(notebookId: string, formData: FormData) {
   const session = await auth();
   if (!session) redirect("/login");
+
+  // Guard: Vercel Blob must be configured — checked before touching the file
+  // so the error is clear rather than a cryptic Blob SDK message.
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    redirect(`/notebooks/${notebookId}?source_error=storage_not_configured`);
+  }
 
   const notebook = await getNotebookForUser(notebookId, session.user.id);
   if (!notebook) redirect("/");
@@ -126,27 +140,42 @@ export async function addFileSource(notebookId: string, formData: FormData) {
     redirect(`/notebooks/${notebookId}?source_error=too_large`);
   }
 
-  // Validate by magic bytes — rejects spoofed Content-Type headers
-  let safeName: string;
-  let detectedMimeType: string;
+  // Magic-byte validation outside a try/catch — redirect() must not be inside catch.
+  let safeName = "";
+  let detectedMimeType = "";
+  let validationError = "";
   try {
     ({ safeName, detectedMimeType } = await validateUpload(file, "pdf"));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "invalid_file";
-    redirect(`/notebooks/${notebookId}?source_error=${encodeURIComponent(msg)}`);
+    validationError = err instanceof Error ? err.message : "invalid_file";
+  }
+  if (validationError) {
+    redirect(`/notebooks/${notebookId}?source_error=${encodeURIComponent(validationError)}`);
   }
 
-  // Upload to Vercel Blob — private path, signed URL via blobUrl field
-  const blob = await put(`sources/${notebookId}/${Date.now()}-${safeName}`, file, {
-    access: "public",
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-  });
+  // Upload to Vercel Blob
+  let blobUrl = "";
+  let uploadError = "";
+  try {
+    const blob = await put(
+      `sources/${notebookId}/${Date.now()}-${safeName}`,
+      file,
+      { access: "public", token: process.env.BLOB_READ_WRITE_TOKEN }
+    );
+    blobUrl = blob.url;
+  } catch (err) {
+    uploadError = err instanceof Error ? err.message : "upload_failed";
+    console.error("Vercel Blob upload failed:", uploadError);
+  }
+  if (uploadError) {
+    redirect(`/notebooks/${notebookId}?source_error=upload_failed`);
+  }
 
   const source = await prisma.source.create({
     data: {
       type: "pdf",
       title: safeName,
-      blobUrl: blob.url,           // Vercel Blob URL — stripped from API responses
+      blobUrl,
       fileSize: file.size,
       mimeType: detectedMimeType,
       uploadedBy: session.user.id,
@@ -184,7 +213,6 @@ export async function updateNotebookDatabases(notebookId: string, formData: Form
 
   const selected = formData.getAll("databases") as string[];
 
-  // Allowlist: only accept known WRP database identifiers
   const VALID_DB_IDS = new Set([
     "wrp_spaces",
     "wrp_tenants",

@@ -22,13 +22,17 @@ const ERROR_MESSAGES: Record<string, string> = {
   url: "That URL could not be validated. Make sure it is publicly reachable.",
   no_file: "Please select a file.",
   too_large: "File must be 10 MB or smaller.",
+  upload_failed: "File upload failed. Check that Vercel Blob storage is configured (BLOB_READ_WRITE_TOKEN).",
+  storage_not_configured: "File storage is not configured. Add BLOB_READ_WRITE_TOKEN to your environment variables.",
 };
 
 export function AddSourceForm({ notebookId, errorCode }: Props) {
   const [tab, setTab] = useState<Tab>("url");
   const [isPending, startTransition] = useTransition();
   const [localError, setLocalError] = useState<string | null>(
-    errorCode ? (ERROR_MESSAGES[errorCode] ?? "An error occurred.") : null
+    errorCode
+      ? (ERROR_MESSAGES[errorCode] ?? decodeURIComponent(errorCode))
+      : null
   );
   const [success, setSuccess] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
