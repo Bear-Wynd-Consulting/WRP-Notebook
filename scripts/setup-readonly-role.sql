@@ -43,13 +43,19 @@ GRANT USAGE ON SCHEMA public TO wrp_notebook_ro;
 -- Common WRP property management tables (update to match your actual schema):
 
 GRANT SELECT ON TABLE
-  -- tenants,
-  -- buildings,
-  -- units,
-  -- leases,
-  -- contacts,
-  -- properties
-  -- ... add your actual table names here
+-- _prisma_migrations,
+-- automated_reply_rules,
+-- inquiry_messages,
+-- inquiry_sessions,
+-- lead_screening_logs,
+-- leads,
+-- maintenance_tickets,
+-- spaces,
+-- tenant_actions,
+-- tenant_assets,
+-- tenants,
+-- ticket_history,
+-- users,
 TO wrp_notebook_ro;
 
 -- Also grant SELECT on any FUTURE tables added to the property management schema.

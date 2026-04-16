@@ -1,7 +1,56 @@
 /**
- * Create new notebook page.
+ * Create new notebook page — uses a Server Action so the session user owns the notebook.
  */
-export default function NewNotebookPage() {
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth/auth-config";
+import { prisma } from "@/lib/db/client";
+import { createAuditLog } from "@/lib/db/scoped-queries";
+import { createNotebookSchema } from "@/lib/validation/schemas";
+
+async function createNotebook(formData: FormData) {
+  "use server";
+
+  const session = await auth();
+  if (!session) redirect("/login");
+
+  const parsed = createNotebookSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") || undefined,
+    visibility: formData.get("visibility"),
+  });
+
+  if (!parsed.success) {
+    // Redirect back with a generic error — no stack traces exposed
+    redirect("/notebooks/new?error=invalid");
+  }
+
+  const notebook = await prisma.notebook.create({
+    data: {
+      name: parsed.data.name,
+      description: parsed.data.description,
+      visibility: parsed.data.visibility,
+      ownerId: session.user.id,
+    },
+  });
+
+  await createAuditLog({
+    action: "notebook.create",
+    actorType: "user",
+    actorId: session.user.id,
+    resource: `notebook:${notebook.id}`,
+    metadata: { name: parsed.data.name, visibility: parsed.data.visibility },
+  });
+
+  redirect(`/notebooks/${notebook.id}`);
+}
+
+export default async function NewNotebookPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+
   return (
     <div className="max-w-lg">
       <h1
@@ -11,7 +60,19 @@ export default function NewNotebookPage() {
         New Notebook
       </h1>
 
-      <form action="/api/internal/notebooks" method="POST" className="space-y-4">
+      {error && (
+        <div
+          className="mb-4 px-4 py-3 rounded-md text-sm"
+          style={{
+            backgroundColor: "var(--wrp-accent)",
+            color: "var(--wrp-dark)",
+          }}
+        >
+          Please check your input and try again.
+        </div>
+      )}
+
+      <form action={createNotebook} className="space-y-4">
         <div>
           <label
             htmlFor="name"
