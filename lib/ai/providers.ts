@@ -3,9 +3,20 @@
  *
  * Anthropic Claude is the primary LLM (best reasoning, WRP-familiar).
  * OpenAI is used for embeddings (text-embedding-3-small) and as an LLM fallback.
+ * Kwisatz gateway proxies to self-hosted Gemma 4 (cost-free inference).
  */
 import { anthropic } from "@ai-sdk/anthropic";
-import { openai } from "@ai-sdk/openai";
+import { openai, createOpenAI } from "@ai-sdk/openai";
+
+// ─── Kwisatz Gateway (self-hosted Gemma 4) ────────────────────────────────────
+
+const _gateway = createOpenAI({
+  baseURL: `${process.env.Kwisatz_Gateway_URL}/v1`,
+  apiKey: process.env.Kwisatz_API_KEY!,
+});
+
+/** Self-hosted Gemma 4 via Project Kwisatz — no per-token cost */
+export const gatewayLlm = _gateway("gemma4:e2b");
 
 // ─── LLM Models ───────────────────────────────────────────────────────────────
 

@@ -19,7 +19,7 @@
 import { inngest } from "./client";
 import { prisma } from "@/lib/db/client";
 import { taskAwareEmbedMany } from "@/lib/ai/task-aware-embed";
-import { fastLlm } from "@/lib/ai/providers";
+import { gatewayLlm } from "@/lib/ai/providers";
 import { generateText } from "ai";
 import { AI_LIMITS, batchForEmbedding, truncateSourceText } from "@/lib/ai/cost-guard";
 import { sanitizeContent } from "@/lib/security/sanitize";
@@ -211,7 +211,7 @@ export const processSource = inngest.createFunction(
     await step.run("summarize", async () => {
       const preview = extractedText.slice(0, 10_000);
       const { text } = await generateText({
-        model: fastLlm,
+        model: gatewayLlm,
         maxOutputTokens: 500,
         messages: [
           {
