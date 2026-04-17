@@ -173,12 +173,12 @@ export function AddSourceForm({ notebookId, errorCode }: Props) {
               name="file"
               type="file"
               required
-              accept=".pdf,.txt,.md,.csv"
+              accept=".pdf"
               className="w-full text-sm"
               style={{ color: "var(--wrp-text)" }}
             />
             <p className="mt-1 text-xs" style={{ color: "var(--wrp-text-muted)" }}>
-              PDF, TXT, MD, or CSV — max 10 MB
+              PDF files only — max 10 MB. For text content use the Plain Text tab.
             </p>
           </div>
         )}

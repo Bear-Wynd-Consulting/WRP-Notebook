@@ -11,6 +11,7 @@ import { buildSafePrompt, ContextChunk } from "./safe-prompt";
 import { AI_LIMITS, truncateHistory } from "./cost-guard";
 import { hybridSearchInNotebook } from "@/lib/db/vector-search";
 import { sanitizeContent } from "@/lib/security/sanitize";
+import { fetchPropertyContext } from "@/lib/db/property-queries";
 
 // ─── Context Retrieval ────────────────────────────────────────────────────────
 
@@ -19,13 +20,19 @@ async function retrieveContext(
   question: string,
   maxChunks: number = AI_LIMITS.MAX_CONTEXT_CHUNKS
 ): Promise<ContextChunk[]> {
-  const { embedding } = await taskAwareEmbed(question, "retrieval_query");
-  const results = await hybridSearchInNotebook(notebookId, question, embedding, maxChunks);
-  return results.map((r) => ({
-    id: r.id,
-    sourceId: r.sourceId,
-    content: r.content,
-  }));
+  const [{ embedding }, notebook] = await Promise.all([
+    taskAwareEmbed(question, "retrieval_query"),
+    prisma.notebook.findUnique({ where: { id: notebookId }, select: { databases: true } }),
+  ]);
+
+  const [vectorChunks, propertyChunks] = await Promise.all([
+    hybridSearchInNotebook(notebookId, question, embedding, maxChunks).then((results) =>
+      results.map((r) => ({ id: r.id, sourceId: r.sourceId, content: r.content }))
+    ),
+    fetchPropertyContext(notebook?.databases ?? []),
+  ]);
+
+  return [...vectorChunks, ...propertyChunks];
 }
 
 // ─── Streaming chat (for UI useChat() hook) ───────────────────────────────────

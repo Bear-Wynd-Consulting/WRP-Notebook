@@ -9,6 +9,7 @@ import { NoteCard } from "@/components/notes/NoteCard";
 import { VisibilityBadge } from "@/components/notebooks/VisibilityBadge";
 import { AddSourceForm } from "@/components/sources/AddSourceForm";
 import { DatabaseSelector } from "@/components/notebooks/DatabaseSelector";
+import { ChatInterface } from "@/components/chat/ChatInterface";
 import type { Source, Note } from "@/app/generated/prisma/client";
 
 export default async function NotebookDetailPage({
@@ -95,6 +96,17 @@ export default async function NotebookDetailPage({
             ))}
           </div>
         )}
+      </section>
+
+      {/* Chat */}
+      <section>
+        <h2 className="text-lg font-semibold mb-1" style={{ color: "var(--wrp-dark)" }}>
+          Chat
+        </h2>
+        <p className="text-sm mb-3" style={{ color: "var(--wrp-text-muted)" }}>
+          Ask questions about this notebook&apos;s sources and any enabled WRP property databases.
+        </p>
+        <ChatInterface notebookId={id} />
       </section>
 
       {/* Database Access */}

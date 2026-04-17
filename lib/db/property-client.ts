@@ -19,23 +19,21 @@
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
 
-function createPropertyClient() {
+function createPropertyClient(): PrismaClient | null {
   const connectionString = process.env.PROPERTY_DB_URL;
-  if (!connectionString) {
-    throw new Error(
-      "PROPERTY_DB_URL is not set. Add the read-only Neon connection string to your environment variables."
-    );
-  }
+  if (!connectionString) return null;
   const adapter = new PrismaNeon({ connectionString });
   return new PrismaClient({ adapter });
 }
 
 const globalForProperty = globalThis as unknown as {
-  propertyDb: PrismaClient | undefined;
+  propertyDb: PrismaClient | null | undefined;
 };
 
-export const propertyDb =
-  globalForProperty.propertyDb ?? createPropertyClient();
+export const propertyDb: PrismaClient | null =
+  globalForProperty.propertyDb !== undefined
+    ? globalForProperty.propertyDb
+    : createPropertyClient();
 
 if (process.env.NODE_ENV !== "production")
   globalForProperty.propertyDb = propertyDb;

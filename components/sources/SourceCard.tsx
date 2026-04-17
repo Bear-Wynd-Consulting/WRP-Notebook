@@ -34,6 +34,12 @@ export function SourceCard({ source }: Props) {
         </span>
       </div>
 
+      {source.status === "PENDING" && (
+        <p className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#FFF3CD", color: "#856404" }}>
+          Awaiting processing. If this stays pending, check that INNGEST_SIGNING_KEY and INNGEST_EVENT_KEY are set.
+        </p>
+      )}
+
       {source.summary && (
         <p
           className="text-xs line-clamp-3"

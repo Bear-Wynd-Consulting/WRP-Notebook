@@ -21,6 +21,8 @@
  * Never import propertyDb in a route handler directly — always go through here.
  */
 import { propertyDb } from "@/lib/db/property-client";
+import { propertyDb as propertyNeon } from "@/lib/db/property-db";
+import type { ContextChunk } from "@/lib/ai/safe-prompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 // Replace these with the actual generated Prisma types once you run prisma generate.
@@ -110,4 +112,71 @@ export async function getBuildingContextForAI(_buildingId: string): Promise<stri
   //   units.map(u => `  Unit ${u.unitNumber}: ${u.tenant?.name ?? "Vacant"}`).join("\n"),
   // ].join("\n");
   throw new Error("getBuildingContextForAI: complete setup first");
+}
+
+// ─── Context chunks for AI chat ───────────────────────────────────────────────
+
+type Row = Record<string, unknown>;
+
+const ROW_LIMIT = 50;
+
+const DB_QUERIES: Record<string, string> = {
+  wrp_spaces:
+    `SELECT id, name, type, status, building, floor, area_sqft FROM spaces ORDER BY building, floor LIMIT ${ROW_LIMIT}`,
+  wrp_tenants:
+    `SELECT id, company_name, space_id, lease_start, lease_end, contact_email FROM tenants ORDER BY company_name LIMIT ${ROW_LIMIT}`,
+  wrp_maintenance:
+    `SELECT id, space_id, type, status, reported_at, description FROM maintenance_requests ORDER BY reported_at DESC LIMIT ${ROW_LIMIT}`,
+  wrp_inquiries:
+    `SELECT id, company_name, inquiry_date, status, notes FROM inquiries ORDER BY inquiry_date DESC LIMIT ${ROW_LIMIT}`,
+  wrp_communications:
+    `SELECT id, recipient, subject, sent_at, status FROM communications ORDER BY sent_at DESC LIMIT ${ROW_LIMIT}`,
+};
+
+const DB_LABELS: Record<string, string> = {
+  wrp_spaces: "WRP Spaces (available/occupied units)",
+  wrp_tenants: "WRP Tenants (current lease holders)",
+  wrp_maintenance: "WRP Maintenance Requests",
+  wrp_inquiries: "WRP Inquiries (prospective tenants)",
+  wrp_communications: "WRP Communications (outbound messages)",
+};
+
+/**
+ * Fetch context chunks for the given list of enabled WRP database IDs.
+ * Returns one ContextChunk per database, appended after source chunks in chat.
+ * Safe when PROPERTY_DB_URL is unset — returns empty array.
+ */
+export async function fetchPropertyContext(
+  databases: string[]
+): Promise<ContextChunk[]> {
+  if (!propertyNeon || databases.length === 0) return [];
+  const db = propertyNeon; // narrowed non-null reference for async closures
+
+  const results = await Promise.allSettled(
+    databases
+      .filter((id) => id in DB_QUERIES)
+      .map(async (id): Promise<ContextChunk> => {
+        let content: string;
+        try {
+          const rows = (await db.query(DB_QUERIES[id])) as Row[];
+          content =
+            rows.length === 0
+              ? "(no records found)"
+              : rows.map((r) => JSON.stringify(r)).join("\n");
+        } catch (err) {
+          content = `(query error: ${err instanceof Error ? err.message : "unknown"})`;
+        }
+        return {
+          id: `prop_${id}`,
+          sourceId: id,
+          content: `${DB_LABELS[id] ?? id}:\n${content}`,
+        };
+      })
+  );
+
+  return results
+    .filter(
+      (r): r is PromiseFulfilledResult<ContextChunk> => r.status === "fulfilled"
+    )
+    .map((r) => r.value);
 }
