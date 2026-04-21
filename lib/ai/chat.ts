@@ -5,7 +5,7 @@
  */
 import { streamText, generateText } from "ai";
 import { prisma } from "@/lib/db/client";
-import { gatewayLlm } from "./providers";
+import { primaryLlm } from "./providers";
 import { taskAwareEmbed } from "./task-aware-embed";
 import { buildSafePrompt, ContextChunk } from "./safe-prompt";
 import { AI_LIMITS, truncateHistory } from "./cost-guard";
@@ -52,7 +52,7 @@ export async function streamChatResponse(opts: {
   const truncatedHistory = truncateHistory(opts.history);
 
   return streamText({
-    model: gatewayLlm,
+    model: primaryLlm,
     maxOutputTokens: AI_LIMITS.MAX_OUTPUT_TOKENS,
     messages: [
       { role: "system", content: systemMessages[0].content },
@@ -86,7 +86,7 @@ export async function askNotebook(opts: {
   const messages = buildSafePrompt(chunks, opts.question);
 
   const { text } = await generateText({
-    model: gatewayLlm,
+    model: primaryLlm,
     maxOutputTokens: AI_LIMITS.MAX_OUTPUT_TOKENS,
     messages,
   });
