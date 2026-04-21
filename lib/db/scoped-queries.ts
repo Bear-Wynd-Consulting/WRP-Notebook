@@ -109,6 +109,12 @@ export async function getNoteById(noteId: string) {
 
 // ─── Chat ─────────────────────────────────────────────────────────────────────
 
+export async function createChatSession(notebookId: string, title: string) {
+  return prisma.chatSession.create({
+    data: { notebookId, title },
+  });
+}
+
 export async function getChatSessionsForNotebook(notebookId: string) {
   return prisma.chatSession.findMany({
     where: { notebookId },

@@ -7,11 +7,10 @@
  *
  * Compatible with Vercel AI SDK useChat() hook.
  */
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth-config";
-import { getNotebookForUser, getChatMessagesForSession } from "@/lib/db/scoped-queries";
+import { getNotebookForUser, getChatMessagesForSession, createChatSession } from "@/lib/db/scoped-queries";
 import { streamChatResponse, storeChatMessage } from "@/lib/ai/chat";
-import { prisma } from "@/lib/db/client";
 import type { RouteCtx } from "@/lib/types/route-context";
 
 export async function POST(req: NextRequest, ctx: RouteCtx<{ id: string }>) {
@@ -54,9 +53,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx<{ id: string }>) {
   // Get or create chat session
   let sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
   if (!sessionId) {
-    const chatSession = await prisma.chatSession.create({
-      data: { notebookId: id, title: message.slice(0, 80) },
-    });
+    const chatSession = await createChatSession(id, message.slice(0, 80));
     sessionId = chatSession.id;
   }
 
@@ -73,12 +70,21 @@ export async function POST(req: NextRequest, ctx: RouteCtx<{ id: string }>) {
   await storeChatMessage({ sessionId, role: "user", content: message });
 
   // Stream response
-  const result = await streamChatResponse({
-    notebookId: id,
-    sessionId,
-    userMessage: message,
-    history: historyMessages,
-  });
+  let result;
+  try {
+    result = await streamChatResponse({
+      notebookId: id,
+      sessionId,
+      userMessage: message,
+      history: historyMessages,
+    });
+  } catch (err) {
+    console.error("[chat] streamChatResponse failed:", err);
+    return NextResponse.json(
+      { error: "Chat unavailable", code: "CHAT_ERROR" },
+      { status: 500 }
+    );
+  }
 
   return result.toTextStreamResponse({
     headers: { "X-Session-Id": sessionId },

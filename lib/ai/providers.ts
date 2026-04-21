@@ -21,7 +21,7 @@ export const gatewayLlm = _gateway("gemma4:e2b");
 // ─── LLM Models ───────────────────────────────────────────────────────────────
 
 /** Primary LLM for chat, ask, and transformations */
-export const primaryLlm = anthropic("claude-sonnet-4-5");
+export const primaryLlm = anthropic("claude-sonnet-4-6");
 
 /** Fallback LLM (used if Anthropic is unavailable) */
 export const fallbackLlm = openai("gpt-4o-mini");
