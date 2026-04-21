@@ -8,6 +8,12 @@ import { serve } from "inngest/next";
 import { inngest } from "@/lib/jobs/client";
 import { processSource } from "@/lib/jobs/process-source";
 
+// Inngest requires Node.js crypto for HMAC signature verification, and the
+// route must be fully dynamic so PUT-based function registration and POST
+// webhook delivery execute per request (not statically optimized).
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export const { GET, POST, PUT } = serve({
   client: inngest,
   functions: [

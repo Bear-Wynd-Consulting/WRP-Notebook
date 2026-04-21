@@ -37,7 +37,10 @@ async function dispatchProcessing(sourceId: string) {
   try {
     await inngest.send({ name: "source/uploaded", data: { sourceId } });
   } catch (err) {
-    console.error("Inngest dispatch failed for source", sourceId, err);
+    console.error("[inngest.dispatch.failed]", {
+      sourceId,
+      error: err instanceof Error ? err.message : String(err),
+    });
     // Source record is saved with PENDING status — can be re-queued manually.
   }
 }

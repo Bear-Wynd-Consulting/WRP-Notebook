@@ -1,11 +1,16 @@
 /**
  * Inngest client — shared across all job definitions.
- * Signing key is verified by the SDK on every webhook call.
+ *
+ * The SDK reads INNGEST_SIGNING_KEY and INNGEST_EVENT_KEY from process.env
+ * on its own; passing them explicitly here would forward `undefined` when a
+ * key is missing and mask the real problem. We only warn on startup.
  */
 import { Inngest } from "inngest";
 
-export const inngest = new Inngest({
-  id: "wrp-notebook",
-  signingKey: process.env.INNGEST_SIGNING_KEY,
-  eventKey: process.env.INNGEST_EVENT_KEY,
-});
+if (!process.env.INNGEST_SIGNING_KEY || !process.env.INNGEST_EVENT_KEY) {
+  console.warn(
+    "[inngest] INNGEST_SIGNING_KEY and/or INNGEST_EVENT_KEY are not set — background jobs will not work"
+  );
+}
+
+export const inngest = new Inngest({ id: "wrp-notebook" });
