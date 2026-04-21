@@ -112,8 +112,8 @@ export const processSource = inngest.createFunction(
     concurrency: { limit: 5 },
     triggers: [{ event: "source/uploaded" }],
   },
-  async ({ event, step }: { event: { data: { sourceId: string } }; step: { run: <T>(id: string, fn: () => Promise<T>) => Promise<T> } }) => {
-    const { sourceId } = event.data;
+  async ({ event, step }) => {
+    const { sourceId } = (event.data as { sourceId: string });
 
     await step.run("mark-processing", async () => {
       await prisma.source.update({
