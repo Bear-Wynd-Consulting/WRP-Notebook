@@ -1,12 +1,11 @@
 /**
- * XSS prevention via DOMPurify (isomorphic — works server-side and client-side).
+ * XSS prevention via sanitize-html (pure CJS, no jsdom dependency).
  *
  * Apply sanitizeContent() to all user-generated and AI-generated content
  * before rendering in React or storing to the database.
  */
-import DOMPurify from "isomorphic-dompurify";
+import sanitizeHtml from "sanitize-html";
 
-// Allowed HTML tags for rich text content
 const ALLOWED_TAGS = [
   "p", "br", "strong", "em", "ul", "ol", "li",
   "h1", "h2", "h3", "h4", "h5", "h6",
@@ -20,16 +19,16 @@ const ALLOWED_TAGS = [
  * Use on all note/source/AI-generated content before rendering or storage.
  */
 export function sanitizeContent(html: string): string {
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR: ["href", "target", "rel"],
-    ALLOW_DATA_ATTR: false,
-  }) as string;
+  return sanitizeHtml(html, {
+    allowedTags: ALLOWED_TAGS,
+    allowedAttributes: { a: ["href", "target", "rel"] },
+    disallowedTagsMode: "discard",
+  });
 }
 
 /**
  * Strip all HTML tags — for plain text contexts.
  */
 export function stripHtml(html: string): string {
-  return DOMPurify.sanitize(html, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] }) as string;
+  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} });
 }
