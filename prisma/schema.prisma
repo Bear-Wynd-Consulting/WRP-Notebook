@@ -219,3 +219,34 @@ model Credential {
 
   @@unique([provider, name])
 }
+
+// ─── Property Management Models (Read-Only) ──────────────────────────────────
+
+// @readonly — managed by WRP Property Management app
+model Building {
+  id      String   @id @default(cuid())
+  name    String
+  address String?
+  units   Unit[]
+  tenants Tenant[]
+}
+
+// @readonly — managed by WRP Property Management app
+model Unit {
+  id         String   @id @default(cuid())
+  unitNumber String
+  buildingId String
+  building   Building @relation(fields: [buildingId], references: [id])
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id])
+  tenantId   String?
+}
+
+// @readonly — managed by WRP Property Management app
+model Tenant {
+  id         String    @id @default(cuid())
+  name       String
+  lastName   String
+  buildingId String?
+  building   Building? @relation(fields: [buildingId], references: [id])
+  units      Unit[]
+}

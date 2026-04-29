@@ -28,30 +28,24 @@ import type { ContextChunk } from "@/lib/ai/safe-prompt";
 // Replace these with the actual generated Prisma types once you run prisma generate.
 // Example (uncomment after adding models to schema.prisma):
 //
-// import type { Building, Tenant, Unit, Lease } from "@/app/generated/prisma/client";
+// import type { Building, Tenant, Unit } from "@/app/generated/prisma/client";
 
 // ─── Buildings ────────────────────────────────────────────────────────────────
 
 /**
  * List all buildings visible to the notebook app.
- * Replace 'building' with your actual Prisma model name (lowercased).
  */
 export async function getBuildings() {
-  // TODO: replace with actual model name after running prisma db pull
-  // return propertyDb.building.findMany({ orderBy: { name: "asc" } });
-  throw new Error(
-    "getBuildings: complete setup by running scripts/setup-readonly-role.sql and prisma db pull"
-  );
+  if (!propertyDb) return [];
+  return propertyDb.building.findMany({ orderBy: { name: "asc" } });
 }
 
 /**
  * Get a single building by ID.
  */
 export async function getBuildingById(id: string) {
-  // TODO: replace with actual model name
-  // return propertyDb.building.findUnique({ where: { id } });
-  void id;
-  throw new Error("getBuildingById: complete setup first");
+  if (!propertyDb) return null;
+  return propertyDb.building.findUnique({ where: { id } });
 }
 
 // ─── Tenants ──────────────────────────────────────────────────────────────────
@@ -60,23 +54,19 @@ export async function getBuildingById(id: string) {
  * List tenants, optionally filtered by building.
  */
 export async function getTenants(buildingId?: string) {
-  // TODO: replace with actual model name and filter field
-  // return propertyDb.tenant.findMany({
-  //   where: buildingId ? { buildingId } : undefined,
-  //   orderBy: { lastName: "asc" },
-  // });
-  void buildingId;
-  throw new Error("getTenants: complete setup first");
+  if (!propertyDb) return [];
+  return propertyDb.tenant.findMany({
+    where: buildingId ? { buildingId } : undefined,
+    orderBy: { lastName: "asc" },
+  });
 }
 
 /**
  * Get a single tenant by ID.
  */
 export async function getTenantById(id: string) {
-  // TODO:
-  // return propertyDb.tenant.findUnique({ where: { id } });
-  void id;
-  throw new Error("getTenantById: complete setup first");
+  if (!propertyDb) return null;
+  return propertyDb.tenant.findUnique({ where: { id } });
 }
 
 // ─── Units ────────────────────────────────────────────────────────────────────
@@ -85,10 +75,12 @@ export async function getTenantById(id: string) {
  * List units in a building.
  */
 export async function getUnitsByBuilding(buildingId: string) {
-  // TODO:
-  // return propertyDb.unit.findMany({ where: { buildingId }, orderBy: { unitNumber: "asc" } });
-  void buildingId;
-  throw new Error("getUnitsByBuilding: complete setup first");
+  if (!propertyDb) return [];
+  return propertyDb.unit.findMany({
+    where: { buildingId },
+    orderBy: { unitNumber: "asc" },
+    include: { tenant: true },
+  });
 }
 
 // ─── Context for AI Chat ─────────────────────────────────────────────────────
@@ -101,17 +93,21 @@ export async function getUnitsByBuilding(buildingId: string) {
  * Called by the /api/v1/notebooks/[id]/ask and /chat routes when the
  * notebook is tagged with a buildingId.
  */
-export async function getBuildingContextForAI(_buildingId: string): Promise<string> {
-  // TODO: once models are in place, implement this like:
-  //
-  // const building = await getBuildingById(buildingId);
-  // const units = await getUnitsByBuilding(buildingId);
-  // return [
-  //   `Building: ${building.name} (${building.address})`,
-  //   `Units: ${units.length}`,
-  //   units.map(u => `  Unit ${u.unitNumber}: ${u.tenant?.name ?? "Vacant"}`).join("\n"),
-  // ].join("\n");
-  throw new Error("getBuildingContextForAI: complete setup first");
+export async function getBuildingContextForAI(buildingId: string): Promise<string> {
+  if (!propertyDb) return "";
+
+  const building = await getBuildingById(buildingId);
+  if (!building) return "Building not found.";
+
+  const units = await getUnitsByBuilding(buildingId);
+
+  return [
+    `Building: ${building.name} (${building.address ?? "No address"})`,
+    `Units: ${units.length}`,
+    units
+      .map((u) => `  Unit ${u.unitNumber}: ${u.tenant?.name ?? "Vacant"}`)
+      .join("\n"),
+  ].join("\n");
 }
 
 // ─── Context chunks for AI chat ───────────────────────────────────────────────
