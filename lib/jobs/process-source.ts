@@ -1,3 +1,4 @@
+import { NonRetriableError } from "inngest";
 /**
  * Inngest step function: source ingestion pipeline.
  *
@@ -100,7 +101,7 @@ async function extractFromPdf(blobUrl: string): Promise<string> {
  * Marked unsupported until the Whisper integration is wired up.
  */
 function extractFromAudio(): never {
-  throw new Error("Audio transcription is not yet implemented");
+  throw new NonRetriableError("Audio transcription is not yet implemented");
 }
 
 // ─── Job definition ───────────────────────────────────────────────────────────
