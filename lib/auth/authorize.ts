@@ -4,7 +4,7 @@
  * Every API route that accesses a notebook must call authorizeNotebookAccess()
  * before returning any data. This enforces scope and per-key notebook restrictions.
  */
-import { ApiKeyContext } from "@/lib/db/scoped-queries";
+import { ApiKeyContext, getChatSessionById } from "@/lib/db/scoped-queries";
 import { getNotebookForApiKey } from "@/lib/db/scoped-queries";
 
 export class NotFoundError extends Error {
@@ -39,4 +39,23 @@ export async function authorizeNotebookAccess(
   }
 
   return notebook;
+}
+
+/**
+ * Assert that the requesting API key context may access the given chat session.
+ * Throws ForbiddenError or NotFoundError if not.
+ */
+export async function authorizeChatSessionAccess(
+  chatSessionId: string,
+  ctx: ApiKeyContext
+) {
+  const session = await getChatSessionById(chatSessionId);
+
+  if (!session) {
+    throw new NotFoundError("Chat session not found");
+  }
+
+  await authorizeNotebookAccess(session.notebookId, ctx);
+
+  return session;
 }

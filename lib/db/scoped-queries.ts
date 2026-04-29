@@ -122,6 +122,12 @@ export async function getChatSessionsForNotebook(notebookId: string) {
   });
 }
 
+export async function getChatSessionById(chatSessionId: string) {
+  return prisma.chatSession.findUnique({
+    where: { id: chatSessionId },
+  });
+}
+
 export async function getChatMessagesForSession(chatSessionId: string) {
   return prisma.chatMessage.findMany({
     where: { chatSessionId },

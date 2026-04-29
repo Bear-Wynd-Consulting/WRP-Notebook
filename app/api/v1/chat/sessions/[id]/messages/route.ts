@@ -3,6 +3,7 @@
  */
 import { NextRequest } from "next/server";
 import { authenticateApiKey } from "@/lib/auth/api-middleware";
+import { authorizeChatSessionAccess } from "@/lib/auth/authorize";
 import { handleApiError } from "@/lib/api/error-response";
 import { toPublicChatMessage } from "@/lib/api/response-filters";
 import { getChatMessagesForSession } from "@/lib/db/scoped-queries";
@@ -15,7 +16,8 @@ export async function GET(
 ) {
   try {
     const { id } = await ctx.params;
-    await authenticateApiKey(req);
+    const apiCtx = await authenticateApiKey(req);
+    await authorizeChatSessionAccess(id, apiCtx);
 
     const { searchParams } = req.nextUrl;
     const { limit, offset } = paginationSchema.parse({
