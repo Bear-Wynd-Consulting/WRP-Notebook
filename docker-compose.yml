@@ -1,0 +1,42 @@
+services:
+  llmster:
+    image: ghcr.io/lmstudio-ai/llmster:latest
+    ports:
+      - "1234:1234"
+    volumes:
+      - ~/.lmstudio/models:/root/.lmstudio/models
+      - llmster-state:/root/.lmstudio/state
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      sh -c "
+        lms daemon up &&
+        lms load meta-llama-3.1-8b-instruct &&
+        lms load nomic-embed-text-v1.5 &&
+        lms server start --port 1234 --host 0.0.0.0 &&
+        tail -f /dev/null
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1234/api/v1/models"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  notebook:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      llmster:
+        condition: service_healthy
+    env_file:
+      - .env.local
+
+volumes:
+  llmster-state:
