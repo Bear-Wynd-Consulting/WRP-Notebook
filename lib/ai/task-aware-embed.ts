@@ -55,6 +55,23 @@ export async function taskAwareEmbedMany(
   });
 }
 
+import OpenAI from "openai";
+
+// Initialize the standard OpenAI client
+// The environment variables will route this to your local llmster container
+const embedClient = new OpenAI({
+  baseURL: process.env.EMBEDDING_BASE_URL || "https://api.openai.com/v1",
+  apiKey: process.env.EMBEDDING_API_KEY || "sk-default",
+});
+
+export async function generateEmbedding(text: string) {
+  const response = await embedClient.embeddings.create({
+    model: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
+    input: text,
+  });
+  
+  return response.data[0].embedding;
+}
 // ─── Google models (if ever added) ───────────────────────────────────────────
 // When using Google text-embedding-004, pass task natively:
 //
