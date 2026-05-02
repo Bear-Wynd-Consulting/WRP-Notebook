@@ -91,6 +91,37 @@ export async function getSourceById(sourceId: string) {
   return prisma.source.findUnique({ where: { id: sourceId } });
 }
 
+/**
+ * Creates a Source from the two-phase PDF editor flow and attaches it to a notebook.
+ * Runs as a transaction so the notebook join is never orphaned.
+ */
+export async function createStructuredSource(data: {
+  notebookId: string;
+  title: string;
+  metadata: Record<string, string>;
+  structured: unknown;
+  rawText: string;
+  uploadedBy: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const source = await tx.source.create({
+      data: {
+        type: "pdf",
+        title: data.title,
+        content: data.rawText,
+        metadata: data.metadata as Record<string, string>,
+        structured: data.structured as Record<string, unknown>,
+        status: "PROCESSING",
+        uploadedBy: data.uploadedBy,
+      },
+    });
+    await tx.notebookSource.create({
+      data: { notebookId: data.notebookId, sourceId: source.id },
+    });
+    return source;
+  });
+}
+
 // ─── Notes ────────────────────────────────────────────────────────────────────
 
 export async function getNotesForNotebook(notebookId: string) {

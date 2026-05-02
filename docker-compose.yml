@@ -1,4 +1,18 @@
+# ─── Phase 2: fully self-contained (default) ─────────────────────────────────
+# llmster runs as a container alongside the notebook.
+# GPU passthrough requires NVIDIA Container Toolkit on Linux.
+# Not suitable for Apple Silicon (no Metal passthrough — CPU inference only).
+#
+# Usage: docker compose --env-file .env.local up --build
+#
+# ─── Phase 1: llmster on host, notebook in Docker ────────────────────────────
+# Run llmster on the host via `lms server start --port 1234`, then:
+#   docker compose --profile local-dev --env-file .env.local up --build
+# The `local-dev` profile swaps in a notebook-only service that reaches the
+# host llmster via host.docker.internal.
+
 services:
+  # ── Phase 2 llmster service (default profile) ─────────────────────────────
   llmster:
     image: ghcr.io/lmstudio-ai/llmster:latest
     ports:
@@ -16,8 +30,8 @@ services:
     command: >
       sh -c "
         lms daemon up &&
-        lms load meta-llama-3.1-8b-instruct &&
-        lms load nomic-embed-text-v1.5 &&
+        lms load gemma-4-2b-it &&
+        lms load embedding-gemma-300m &&
         lms server start --port 1234 --host 0.0.0.0 &&
         tail -f /dev/null
       "
@@ -28,6 +42,7 @@ services:
       retries: 10
       start_period: 120s
 
+  # ── Phase 2 notebook (default profile) ────────────────────────────────────
   notebook:
     build: .
     ports:
@@ -37,6 +52,20 @@ services:
         condition: service_healthy
     env_file:
       - .env.local
+
+  # ── Phase 1 notebook (local-dev profile) ──────────────────────────────────
+  # llmster runs on the host; this service reaches it via host.docker.internal.
+  # Required on Linux: the extra_hosts entry below maps the name.
+  # On Docker Desktop (Mac/Windows) host.docker.internal is built in.
+  notebook-local-dev:
+    profiles: [local-dev]
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   llmster-state:

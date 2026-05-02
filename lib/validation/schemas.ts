@@ -29,6 +29,27 @@ export const createSourceSchema = z.object({
   text: z.string().max(500_000).optional(), // ~125k tokens max
 });
 
+/** Two-phase PDF commit: confirmed Editor.js data + document metadata */
+export const commitSourceSchema = z.object({
+  notebookId: z.string().min(1),
+  metadata: z.object({
+    department: z.string().max(200).trim().optional().default(""),
+    useCase: z.string().max(500).trim().optional().default(""),
+    date: z.string().max(20).trim().optional().default(""),
+  }),
+  structuredData: z.object({
+    time: z.number(),
+    blocks: z.array(
+      z.object({
+        type: z.string(),
+        data: z.record(z.unknown()),
+      })
+    ),
+    version: z.string().optional(),
+  }),
+  rawText: z.string().max(500_000),
+});
+
 // ─── Notes ────────────────────────────────────────────────────────────────────
 
 export const createNoteSchema = z.object({

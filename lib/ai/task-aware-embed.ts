@@ -1,14 +1,16 @@
 /**
- * Task-aware embedding wrapper — Gap 1 from Esperanto migration.
+ * Task-aware embedding wrapper.
  *
  * Vercel AI SDK's embed() doesn't have an EmbeddingTaskType abstraction.
  * This wrapper prepends task-specific prefixes to improve retrieval accuracy
- * by 5-15% (the same technique Esperanto uses internally for OpenAI).
+ * by 5-15% (same technique as Nomic/Cohere task types).
  *
- * For Google models, pass taskType via providerOptions instead (see comment below).
+ * taskAwareEmbed / taskAwareEmbedMany — used by the Inngest pipeline (URL/text/YouTube)
+ * generateEmbedding — used by the commit route (PDF two-phase flow)
  */
 import { embed, embedMany } from "ai";
 import { embeddingModel } from "./providers";
+import { embedClient, EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./llm-client";
 
 export type EmbeddingTask =
   | "retrieval_query"    // short search query
@@ -17,7 +19,6 @@ export type EmbeddingTask =
   | "classification"     // content classification
   | "clustering";        // document clustering
 
-// Prefixes applied before embedding (OpenAI embedding models respect these)
 const TASK_PREFIXES: Record<EmbeddingTask, string> = {
   retrieval_query: "search_query: ",
   retrieval_document: "search_document: ",
@@ -26,9 +27,6 @@ const TASK_PREFIXES: Record<EmbeddingTask, string> = {
   clustering: "cluster: ",
 };
 
-/**
- * Embed a single text value with a task-specific prefix.
- */
 export async function taskAwareEmbed(
   text: string,
   task: EmbeddingTask = "retrieval_document"
@@ -40,10 +38,6 @@ export async function taskAwareEmbed(
   });
 }
 
-/**
- * Embed multiple text values with a task-specific prefix.
- * Respects the MAX_EMBEDDING_BATCH_SIZE cost guard.
- */
 export async function taskAwareEmbedMany(
   texts: string[],
   task: EmbeddingTask = "retrieval_document"
@@ -55,23 +49,21 @@ export async function taskAwareEmbedMany(
   });
 }
 
-import OpenAI from "openai";
-
-// Initialize the standard OpenAI client
-// The environment variables will route this to your local llmster container
-const embedClient = new OpenAI({
-  baseURL: process.env.EMBEDDING_BASE_URL || "https://api.openai.com/v1",
-  apiKey: process.env.EMBEDDING_API_KEY || "sk-default",
-});
-
-export async function generateEmbedding(text: string) {
+/**
+ * Direct embedding via the OpenAI-compatible client (works with LM Studio).
+ * Used by the PDF commit route instead of the Vercel AI SDK path.
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
   const response = await embedClient.embeddings.create({
-    model: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
+    model: EMBEDDING_MODEL,
     input: text,
+    ...(EMBEDDING_MODEL.startsWith("text-embedding-3")
+      ? { dimensions: EMBEDDING_DIMENSIONS }
+      : {}),
   });
-  
   return response.data[0].embedding;
 }
+
 // ─── Google models (if ever added) ───────────────────────────────────────────
 // When using Google text-embedding-004, pass task natively:
 //

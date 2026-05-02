@@ -59,9 +59,10 @@ model Source {
   id         String       @id @default(cuid())
   type       String       // pdf, url, youtube, audio, text
   title      String?
-  content    String?      // extracted full text
+  content    String?      // extracted full text (url/youtube/text sources)
   summary    String?
-  metadata   Json?
+  metadata   Json?        // { url } for url/youtube; { department, useCase, date } for pdf
+  structured Json?        // Editor.js OutputData — set by two-phase PDF commit route
   status     SourceStatus @default(PENDING)
   filePath   String?
   blobUrl    String?      // private Vercel Blob URL — NEVER exposed to clients
@@ -81,7 +82,7 @@ model SourceChunk {
   sourceId   String
   source     Source  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   content    String
-  embedding  Unsupported("vector(1536)")?
+  embedding  Unsupported("vector(768)")?
   chunkIndex Int
 
   @@index([sourceId])

@@ -77,26 +77,6 @@ async function extractFromUrl(url: string): Promise<string> {
 }
 
 /**
- * pdf: download from Vercel Blob URL and extract text with pdf-parse v2 (class API).
- */
-async function extractFromPdf(blobUrl: string): Promise<string> {
-  const res = await fetch(blobUrl, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`Could not download PDF: HTTP ${res.status}`);
-
-  const arrayBuffer = await res.arrayBuffer();
-
-  // Dynamic import so pdfjs-dist worker init only happens when needed
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: arrayBuffer });
-  try {
-    const result = await parser.getText();
-    return result.text ?? "";
-  } finally {
-    await parser.destroy();
-  }
-}
-
-/**
  * audio: transcription is handled by a dedicated Whisper step.
  * Marked unsupported until the Whisper integration is wired up.
  */
@@ -144,11 +124,13 @@ export const processSource = inngest.createFunction(
           break;
         }
 
-        case "pdf": {
-          if (!source.blobUrl) throw new Error(`No blobUrl for PDF source ${sourceId}`);
-          raw = await extractFromPdf(source.blobUrl);
-          break;
-        }
+        case "pdf":
+          // PDF sources are handled by the two-phase extract/commit flow
+          // (POST /api/v1/sources/extract → StructuredEditor → POST /api/v1/sources/commit).
+          // They are committed directly as READY and should never reach this job.
+          throw new NonRetriableError(
+            "PDF sources use the two-phase editor flow and should not be processed by Inngest"
+          );
 
         case "audio":
           extractFromAudio();
