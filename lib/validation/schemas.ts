@@ -42,7 +42,7 @@ export const commitSourceSchema = z.object({
     blocks: z.array(
       z.object({
         type: z.string(),
-        data: z.record(z.unknown()),
+        data: z.record(z.string(), z.unknown()),
       })
     ),
     version: z.string().optional(),

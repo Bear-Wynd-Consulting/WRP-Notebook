@@ -26,9 +26,7 @@ import { prisma } from "@/lib/db/client";
 import { getNotebookForUser, createAuditLog } from "@/lib/db/scoped-queries";
 import { createSourceSchema } from "@/lib/validation/schemas";
 import { validateIngestUrl } from "@/lib/security/url-validator";
-import { validateUpload } from "@/lib/security/file-upload";
 import { processSourceSync } from "@/lib/jobs/process-source-sync";
-import { put } from "@vercel/blob";
 
 // ─── Source Actions ────────────────────────────────────────────────────────────
 
@@ -107,88 +105,15 @@ export async function addTextOrUrlSource(notebookId: string, formData: FormData)
 }
 
 /**
- * Add a PDF or audio file source to a notebook.
+ * Add a file source to a notebook.
  *
- * Works for all notebook visibility types (PRIVATE, INTERNAL, PUBLIC).
- * Requires BLOB_READ_WRITE_TOKEN to be set in the environment.
+ * PDFs use the two-phase extract/commit flow (/api/v1/sources/extract + /commit)
+ * and should never reach this action. Audio support is not yet implemented.
  */
-export async function addFileSource(notebookId: string, formData: FormData) {
+export async function addFileSource(notebookId: string, _formData: FormData) {
   const session = await auth();
   if (!session) redirect("/login");
-
-  // Guard: Vercel Blob must be configured — checked before touching the file
-  // so the error is clear rather than a cryptic Blob SDK message.
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    redirect(`/notebooks/${notebookId}?source_error=storage_not_configured`);
-  }
-
-  const notebook = await getNotebookForUser(notebookId, session.user.id);
-  if (!notebook) redirect("/");
-
-  const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) {
-    redirect(`/notebooks/${notebookId}?source_error=no_file`);
-  }
-
-  if (file.size > 10 * 1024 * 1024) {
-    redirect(`/notebooks/${notebookId}?source_error=too_large`);
-  }
-
-  // Magic-byte validation outside a try/catch — redirect() must not be inside catch.
-  let safeName = "";
-  let detectedMimeType = "";
-  let validationError = "";
-  try {
-    ({ safeName, detectedMimeType } = await validateUpload(file, "pdf"));
-  } catch (err) {
-    validationError = err instanceof Error ? err.message : "invalid_file";
-  }
-  if (validationError) {
-    redirect(`/notebooks/${notebookId}?source_error=${encodeURIComponent(validationError)}`);
-  }
-
-  // Upload to Vercel Blob
-  let blobUrl = "";
-  let uploadError = "";
-  try {
-    const blob = await put(
-      `sources/${notebookId}/${Date.now()}-${safeName}`,
-      file,
-      { access: "public", token: process.env.BLOB_READ_WRITE_TOKEN }
-    );
-    blobUrl = blob.url;
-  } catch (err) {
-    uploadError = err instanceof Error ? err.message : "upload_failed";
-    console.error("Vercel Blob upload failed:", uploadError);
-  }
-  if (uploadError) {
-    redirect(`/notebooks/${notebookId}?source_error=upload_failed`);
-  }
-
-  const source = await prisma.source.create({
-    data: {
-      type: "pdf",
-      title: safeName,
-      blobUrl,
-      fileSize: file.size,
-      mimeType: detectedMimeType,
-      uploadedBy: session.user.id,
-      status: "PENDING",
-      notebooks: {
-        create: { notebookId },
-      },
-    },
-  });
-
-  await createAuditLog({
-    action: "source.create",
-    actorType: "user",
-    actorId: session.user.id,
-    resource: `source:${source.id}`,
-    metadata: { notebookId, type: "pdf", filename: safeName },
-  });
-
-  revalidatePath(`/notebooks/${notebookId}`);
+  redirect(`/notebooks/${notebookId}?source_error=not_implemented`);
 }
 
 // ─── Database Selection Action ─────────────────────────────────────────────────

@@ -110,7 +110,7 @@ export async function createStructuredSource(data: {
         title: data.title,
         content: data.rawText,
         metadata: data.metadata as Record<string, string>,
-        structured: data.structured as Record<string, unknown>,
+        structured: data.structured as Prisma.InputJsonValue,
         status: "PROCESSING",
         uploadedBy: data.uploadedBy,
       },
