@@ -10,7 +10,7 @@ import { openai } from "@ai-sdk/openai";
 
 // ─── LLM Models ───────────────────────────────────────────────────────────────
 
-export const LLM_MODEL = process.env.LLM_MODEL ?? "gemma-4-2b-it";
+export const LLM_MODEL = process.env.LLM_MODEL ?? "google/gemma-4-e2b";
 
 /** Primary LLM for chat, ask, and transformations */
 export const primaryLlm = anthropic(LLM_MODEL);
@@ -35,6 +35,5 @@ export const EMBEDDING_DIMENSIONS = parseInt(
  * text-embedding-3-small with dimensions=768 matches nomic-embed-text-v1.5 output width.
  */
 export const embeddingModel = openai.embedding(
-  process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
-  { dimensions: EMBEDDING_DIMENSIONS }
+  process.env.EMBEDDING_MODEL ?? "text-embedding-3-small"
 );

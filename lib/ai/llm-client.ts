@@ -17,7 +17,7 @@ export const llmClient = new Anthropic({
 });
 
 export const LLM_MODEL =
-  process.env.LLM_MODEL ?? "gemma-4-2b-it";
+  process.env.LLM_MODEL ?? "google/gemma-4-e2b";
 
 export const embedClient = new OpenAI({
   baseURL: process.env.EMBEDDING_BASE_URL ?? "https://api.openai.com/v1",
@@ -25,7 +25,7 @@ export const embedClient = new OpenAI({
 });
 
 export const EMBEDDING_MODEL =
-  process.env.EMBEDDING_MODEL ?? "embedding-gemma-300m";
+  process.env.EMBEDDING_MODEL ?? "google/embedding-gemma-300m";
 
 export const EMBEDDING_DIMENSIONS = parseInt(
   process.env.EMBEDDING_DIMENSIONS ?? "768"

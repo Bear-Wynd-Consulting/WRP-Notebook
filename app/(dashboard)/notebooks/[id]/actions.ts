@@ -5,11 +5,11 @@
  * All actions require a valid NextAuth session and ownership of the notebook.
  *
  * Source type pipeline overview:
- *  text     → content stored directly → Inngest reads content → chunk + embed
- *  url      → URL stored in metadata  → Inngest fetches URL → extract text → chunk + embed
- *  youtube  → URL stored in metadata  → Inngest fetches transcript → chunk + embed
- *  pdf      → uploaded to Vercel Blob → Inngest downloads + pdf-parse → chunk + embed
- *  audio    → uploaded to Vercel Blob → Inngest transcribes (Whisper) → chunk + embed
+ *  text     → content stored directly → processSourceSync → chunk + embed
+ *  url      → URL stored in metadata  → processSourceSync fetches URL → chunk + embed
+ *  youtube  → URL stored in metadata  → processSourceSync fetches transcript → chunk + embed
+ *  pdf      → two-phase extract/commit flow via /api/v1/sources/extract and /commit
+ *  audio    → not yet implemented
  *
  * Source management is available for all notebook visibility types
  * (PRIVATE, INTERNAL, PUBLIC). Visibility controls API access, not
@@ -27,23 +27,8 @@ import { getNotebookForUser, createAuditLog } from "@/lib/db/scoped-queries";
 import { createSourceSchema } from "@/lib/validation/schemas";
 import { validateIngestUrl } from "@/lib/security/url-validator";
 import { validateUpload } from "@/lib/security/file-upload";
-import { inngest } from "@/lib/jobs/client";
+import { processSourceSync } from "@/lib/jobs/process-source-sync";
 import { put } from "@vercel/blob";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Fire-and-forget Inngest event — never let a job dispatch failure block saving. */
-async function dispatchProcessing(sourceId: string) {
-  try {
-    await inngest.send({ name: "source/uploaded", data: { sourceId } });
-  } catch (err) {
-    console.error("[inngest.dispatch.failed]", {
-      sourceId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    // Source record is saved with PENDING status — can be re-queued manually.
-  }
-}
 
 // ─── Source Actions ────────────────────────────────────────────────────────────
 
@@ -90,9 +75,7 @@ export async function addTextOrUrlSource(notebookId: string, formData: FormData)
     data: {
       type: data.type,
       title: data.title ?? (data.url ? new URL(data.url).hostname : "Text"),
-      // Text: store content directly. URL/YouTube: Inngest will fetch it.
       content: data.type === "text" ? data.text : undefined,
-      // URL stored in metadata so the Inngest job knows where to fetch from.
       metadata: isUrlType && data.url ? { url: data.url } : undefined,
       uploadedBy: session.user.id,
       status: "PENDING",
@@ -102,7 +85,15 @@ export async function addTextOrUrlSource(notebookId: string, formData: FormData)
     },
   });
 
-  await dispatchProcessing(source.id);
+  try {
+    await processSourceSync(source.id);
+  } catch (err) {
+    console.error("[processSourceSync.failed]", {
+      sourceId: source.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Source is marked ERROR by processSourceSync — continue to audit log.
+  }
 
   await createAuditLog({
     action: "source.create",
@@ -188,8 +179,6 @@ export async function addFileSource(notebookId: string, formData: FormData) {
       },
     },
   });
-
-  await dispatchProcessing(source.id);
 
   await createAuditLog({
     action: "source.create",
