@@ -12,7 +12,6 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/lib/auth/auth-config";
 import { handleApiError, apiError } from "@/lib/api/error-response";
-import { toPublicSource } from "@/lib/api/response-filters";
 import {
   createStructuredSource,
   createAuditLog,
@@ -20,7 +19,7 @@ import {
 } from "@/lib/db/scoped-queries";
 import { prisma } from "@/lib/db/client";
 import { commitSourceSchema } from "@/lib/validation/schemas";
-import { generateEmbedding } from "@/lib/ai/task-aware-embed";
+import { generateEmbeddings } from "@/lib/ai/task-aware-embed";
 import { AI_LIMITS } from "@/lib/ai/cost-guard";
 
 export async function POST(req: NextRequest) {
@@ -69,24 +68,38 @@ export async function POST(req: NextRequest) {
 
     let chunksEmbedded = 0;
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i].slice(0, AI_LIMITS.MAX_EMBED_TEXT_LENGTH);
-      if (!chunk.trim()) continue;
+    // Prepare all chunks first
+    const validChunks = chunks
+      .map(chunk => chunk.slice(0, AI_LIMITS.MAX_EMBED_TEXT_LENGTH))
+      .filter(chunk => chunk.trim().length > 0);
 
-      const vectorArr = await generateEmbedding(chunk);
-      const vectorStr = `[${vectorArr.join(",")}]`;
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < validChunks.length; i += BATCH_SIZE) {
+      const batch = validChunks.slice(i, i + BATCH_SIZE);
 
-      await prisma.$executeRaw`
-        INSERT INTO notebook."SourceChunk" (id, "sourceId", content, embedding, "chunkIndex")
-        VALUES (
-          gen_random_uuid()::text,
-          ${source.id},
-          ${chunk},
-          ${vectorStr}::vector,
-          ${i}
-        )
-      `;
-      chunksEmbedded++;
+      // Generate embeddings for the batch
+      const vectors = await generateEmbeddings(batch);
+
+      // Insert the chunk records in parallel
+      await Promise.all(
+        batch.map(async (chunk, batchIdx) => {
+          const globalIdx = i + batchIdx;
+          const vectorArr = vectors[batchIdx];
+          const vectorStr = `[${vectorArr.join(",")}]`;
+
+          await prisma.$executeRaw`
+            INSERT INTO notebook."SourceChunk" (id, "sourceId", content, embedding, "chunkIndex")
+            VALUES (
+              gen_random_uuid()::text,
+              ${source.id},
+              ${chunk},
+              ${vectorStr}::vector,
+              ${globalIdx}
+            )
+          `;
+        })
+      );
+      chunksEmbedded += batch.length;
     }
 
     // Mark READY — no async job needed

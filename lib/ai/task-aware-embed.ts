@@ -62,6 +62,15 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   return response.data[0].embedding;
 }
 
+export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+  const response = await embedClient.embeddings.create({
+    model: EMBEDDING_MODEL,
+    input: texts,
+    dimensions: EMBEDDING_DIMENSIONS,
+  });
+  return response.data.sort((a, b) => a.index - b.index).map(d => d.embedding);
+}
+
 // ─── Google models (if ever added) ───────────────────────────────────────────
 // When using Google text-embedding-004, pass task natively:
 //
