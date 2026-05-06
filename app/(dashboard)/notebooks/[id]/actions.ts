@@ -135,6 +135,7 @@ export async function updateNotebookDatabases(notebookId: string, formData: Form
     "wrp_tenants",
     "wrp_maintenance",
     "wrp_inquiries",
+    "wrp_leads",
     "wrp_communications",
   ]);
   const sanitised = selected.filter((id) => VALID_DB_IDS.has(id));

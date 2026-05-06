@@ -1,19 +1,21 @@
-# ─── Phase 2: fully self-contained (default) ─────────────────────────────────
+# ─── Phase 1: llmster on host, notebook in Docker (default for development) ───
+# Run LM Studio on the host first: lms server start --port 1234
+# Then start the notebook container:
+#   docker compose --profile local-dev --env-file .env.local up --build
+# host.docker.internal is built-in on Docker Desktop (Windows/Mac).
+# On Linux, the extra_hosts entry maps it to the host gateway.
+
+# ─── Phase 2: fully self-contained ───────────────────────────────────────────
 # llmster runs as a container alongside the notebook.
 # GPU passthrough requires NVIDIA Container Toolkit on Linux.
 # Not suitable for Apple Silicon (no Metal passthrough — CPU inference only).
 #
-# Usage: docker compose --env-file .env.local up --build
-#
-# ─── Phase 1: llmster on host, notebook in Docker ────────────────────────────
-# Run llmster on the host via `lms server start --port 1234`, then:
-#   docker compose --profile local-dev --env-file .env.local up --build
-# The `local-dev` profile swaps in a notebook-only service that reaches the
-# host llmster via host.docker.internal.
+# Usage: docker compose --profile phase2 --env-file .env.local up --build
 
 services:
-  # ── Phase 2 llmster service (default profile) ─────────────────────────────
+  # ── Phase 2 llmster service ───────────────────────────────────────────────
   llmster:
+    profiles: [phase2]
     image: ghcr.io/lmstudio-ai/llmster:latest
     ports:
       - "1234:1234"
@@ -42,8 +44,9 @@ services:
       retries: 10
       start_period: 120s
 
-  # ── Phase 2 notebook (default profile) ────────────────────────────────────
+  # ── Phase 2 notebook ──────────────────────────────────────────────────────
   notebook:
+    profiles: [phase2]
     build: .
     ports:
       - "3000:3000"
@@ -54,7 +57,7 @@ services:
       - .env.local
 
   # ── Phase 1 notebook (local-dev profile) ──────────────────────────────────
-  # llmster runs on the host; this service reaches it via host.docker.internal.
+  # LM Studio runs on the host; this service reaches it via host.docker.internal.
   # Required on Linux: the extra_hosts entry below maps the name.
   # On Docker Desktop (Mac/Windows) host.docker.internal is built in.
   notebook-local-dev:

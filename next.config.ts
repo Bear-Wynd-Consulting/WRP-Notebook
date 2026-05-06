@@ -1,13 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // This is the critical line for Docker deployment
   output: "standalone",
-  
-  // Keep the rest of your existing configuration below...
-  experimental: {
-    // any existing experimental flags
-  }
+  // pdf-parse uses pdfjs-dist which tries to load a web worker when bundled.
+  // Marking it external lets it run as a plain Node.js module instead.
+  serverExternalPackages: ["pdf-parse", "pdfjs-dist"],
 };
 
 export default nextConfig;

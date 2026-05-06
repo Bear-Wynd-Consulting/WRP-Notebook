@@ -57,9 +57,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const response = await embedClient.embeddings.create({
     model: EMBEDDING_MODEL,
     input: text,
-    ...(EMBEDDING_MODEL.startsWith("text-embedding-3")
-      ? { dimensions: EMBEDDING_DIMENSIONS }
-      : {}),
+    dimensions: EMBEDDING_DIMENSIONS,
   });
   return response.data[0].embedding;
 }

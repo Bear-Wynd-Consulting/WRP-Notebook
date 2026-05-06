@@ -88,14 +88,15 @@ export async function processSourceSync(sourceId: string): Promise<void> {
 
     for (let i = 0; i < chunks.length; i++) {
       const text = chunks[i].slice(0, AI_LIMITS.MAX_EMBED_TEXT_LENGTH);
-      const embedding = await generateEmbedding(text);
+      const embeddingArr = await generateEmbedding(text);
+      const embeddingStr = `[${embeddingArr.join(",")}]`;
       await prisma.$executeRaw`
-        INSERT INTO "SourceChunk" (id, "sourceId", content, embedding, "chunkIndex")
+        INSERT INTO notebook."SourceChunk" (id, "sourceId", content, embedding, "chunkIndex")
         VALUES (
           gen_random_uuid()::text,
           ${sourceId},
           ${chunks[i]},
-          ${embedding}::vector,
+          ${embeddingStr}::vector,
           ${i}
         )
       `;

@@ -73,15 +73,16 @@ export async function POST(req: NextRequest) {
       const chunk = chunks[i].slice(0, AI_LIMITS.MAX_EMBED_TEXT_LENGTH);
       if (!chunk.trim()) continue;
 
-      const vector = await generateEmbedding(chunk);
+      const vectorArr = await generateEmbedding(chunk);
+      const vectorStr = `[${vectorArr.join(",")}]`;
 
       await prisma.$executeRaw`
-        INSERT INTO "SourceChunk" (id, "sourceId", content, embedding, "chunkIndex")
+        INSERT INTO notebook."SourceChunk" (id, "sourceId", content, embedding, "chunkIndex")
         VALUES (
           gen_random_uuid()::text,
           ${source.id},
           ${chunk},
-          ${vector}::vector,
+          ${vectorStr}::vector,
           ${i}
         )
       `;

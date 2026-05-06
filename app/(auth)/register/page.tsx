@@ -1,33 +1,21 @@
-/**
- * Login page — NextAuth.js v5 sign-in via Server Action.
- * Auth errors redirect here (never expose error details in URL).
- */
-import { signIn } from "@/lib/auth/auth-config";
-import { AuthError } from "next-auth";
-import { redirect } from "next/navigation";
+import { registerAction } from "./actions";
 
-async function loginAction(formData: FormData) {
-  "use server";
-  try {
-    await signIn("credentials", {
-      email:       formData.get("email"),
-      password:    formData.get("password"),
-      redirectTo:  "/notebooks",
-    });
-  } catch (err) {
-    if (err instanceof AuthError) {
-      redirect(`/login?error=invalid`);
-    }
-    throw err; // re-throw redirect
-  }
-}
+const ERROR_MESSAGES: Record<string, string> = {
+  email_required:    "Email address is required.",
+  domain:            "Only @westernresearchparks.ca addresses may register.",
+  password_short:    "Password must be at least 8 characters.",
+  password_mismatch: "Passwords do not match.",
+  email_taken:       "An account with that email already exists.",
+};
 
-export default async function LoginPage({
+export default async function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; registered?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
-  const { error, registered } = await searchParams;
+  const { error } = await searchParams;
+  const errorMsg = error ? (ERROR_MESSAGES[error] ?? "Registration failed. Please try again.") : null;
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-[var(--wrp-surface)]">
       <div className="w-full max-w-sm space-y-8 px-6">
@@ -46,23 +34,15 @@ export default async function LoginPage({
             WRP Knowledge Hub
           </h1>
           <p className="mt-1 text-sm" style={{ color: "var(--wrp-secondary)" }}>
-            Sign in to access your notebooks
+            Create your WRP account
           </p>
         </div>
 
-        {registered && (
-          <p className="text-sm text-center text-green-700">
-            Account created — sign in below.
-          </p>
+        {errorMsg && (
+          <p className="text-sm text-center text-red-600">{errorMsg}</p>
         )}
 
-        {error && (
-          <p className="text-sm text-center text-red-600">
-            Invalid email or password.
-          </p>
-        )}
-
-        <form action={loginAction} className="space-y-4">
+        <form action={registerAction} className="space-y-4">
           <div>
             <label
               htmlFor="email"
@@ -77,9 +57,12 @@ export default async function LoginPage({
               type="email"
               autoComplete="email"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2"
+              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2"
               style={{ borderColor: "var(--wrp-secondary)" }}
             />
+            <p className="mt-1 text-xs" style={{ color: "var(--wrp-secondary)" }}>
+              Use your @westernresearchparks.ca address
+            </p>
           </div>
 
           <div>
@@ -94,7 +77,27 @@ export default async function LoginPage({
               id="password"
               name="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
+              required
+              minLength={8}
+              className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2"
+              style={{ borderColor: "var(--wrp-secondary)" }}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="confirmPassword"
+              className="block text-sm font-medium mb-1"
+              style={{ color: "var(--wrp-primary)" }}
+            >
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              name="confirmPassword"
+              type="password"
+              autoComplete="new-password"
               required
               className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2"
               style={{ borderColor: "var(--wrp-secondary)" }}
@@ -106,14 +109,14 @@ export default async function LoginPage({
             className="w-full py-2 px-4 text-white text-sm font-medium rounded-md transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--wrp-primary)" }}
           >
-            Sign in
+            Create account
           </button>
         </form>
 
         <p className="text-center text-sm" style={{ color: "var(--wrp-secondary)" }}>
-          Don&apos;t have an account?{" "}
-          <a href="/register" className="underline" style={{ color: "var(--wrp-primary)" }}>
-            Register
+          Already have an account?{" "}
+          <a href="/login" className="underline" style={{ color: "var(--wrp-primary)" }}>
+            Sign in
           </a>
         </p>
 

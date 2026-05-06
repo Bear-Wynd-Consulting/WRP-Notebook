@@ -15,6 +15,19 @@ import { handleApiError, apiError } from "@/lib/api/error-response";
 import { AI_LIMITS } from "@/lib/ai/cost-guard";
 import { llmClient, LLM_MODEL } from "@/lib/ai/llm-client";
 
+async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number }> {
+  // pdf-parse@2 exports PDFParse class (not a function). Use the class API directly.
+  // The class handles pdfjs-dist worker setup internally via static setWorker().
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return { text: result.text, numpages: result.total };
+  } finally {
+    await parser.destroy();
+  }
+}
+
 const EXTRACTION_PROMPT = `You are an expert data extraction assistant. Convert the following raw text from a PDF into a structured JSON object compatible with Editor.js.
 
 Output ONLY valid JSON — no markdown fences, no explanation, no preamble.
@@ -59,15 +72,8 @@ export async function POST(req: NextRequest) {
 
     // Parse PDF in-memory — file is never written to disk or blob storage
     const arrayBuffer = await file.arrayBuffer();
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: arrayBuffer });
-    let rawText: string;
-    try {
-      const result = await parser.getText();
-      rawText = result.text ?? "";
-    } finally {
-      await parser.destroy();
-    }
+    const parsed = await parsePdf(Buffer.from(arrayBuffer));
+    const rawText = parsed.text ?? "";
 
     if (!rawText.trim()) {
       return apiError(
