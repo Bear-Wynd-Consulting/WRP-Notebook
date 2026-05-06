@@ -6,27 +6,10 @@
  */
 import { createHash } from "crypto";
 import { NextRequest } from "next/server";
-import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
 import { prisma } from "@/lib/db/client";
 import { ApiKeyContext } from "@/lib/db/scoped-queries";
 import { UnauthorizedError } from "@/lib/auth/authorize";
-
-// ─── Rate limiter ─────────────────────────────────────────────────────────────
-
-let ratelimit: Ratelimit | null = null;
-
-function getRatelimit(): Ratelimit | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL) return null;
-  if (!ratelimit) {
-    ratelimit = new Ratelimit({
-      redis: Redis.fromEnv(),
-      limiter: Ratelimit.slidingWindow(100, "1 m"), // default — overridden per key
-      prefix: "wrp_rl",
-    });
-  }
-  return ratelimit;
-}
+import { checkRateLimit } from "@/lib/auth/rate-limit";
 
 // ─── Client IP ────────────────────────────────────────────────────────────────
 
@@ -74,16 +57,13 @@ export async function authenticateApiKey(
   }
 
   // 4. Rate limiting (skip if Upstash not configured — dev mode)
-  const rl = getRatelimit();
-  if (rl) {
-    const { success, reset } = await rl.limit(apiKey.id);
-    if (!success) {
-      const resetAt = new Date(reset).toISOString();
-      throw Object.assign(
-        new UnauthorizedError(`Rate limit exceeded. Resets at ${resetAt}`),
-        { statusOverride: 429 }
-      );
-    }
+  const rlResult = await checkRateLimit(apiKey.id);
+  if (rlResult && !rlResult.success) {
+    const resetAt = new Date(rlResult.reset).toISOString();
+    throw Object.assign(
+      new UnauthorizedError(`Rate limit exceeded. Resets at ${resetAt}`),
+      { statusOverride: 429 }
+    );
   }
 
   // 5. Update usage metadata (fire-and-forget — never block the request)
