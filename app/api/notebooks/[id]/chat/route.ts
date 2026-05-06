@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth-config";
 import { getNotebookForUser, getChatMessagesForSession, createChatSession } from "@/lib/db/scoped-queries";
 import { streamChatResponse, storeChatMessage } from "@/lib/ai/chat";
+import { checkRateLimit } from "@/lib/auth/rate-limit";
 import type { RouteCtx } from "@/lib/types/route-context";
 
 export async function POST(req: NextRequest, ctx: RouteCtx<{ id: string }>) {
@@ -22,6 +23,27 @@ export async function POST(req: NextRequest, ctx: RouteCtx<{ id: string }>) {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // Rate limiting for authenticated users
+  const rlResult = await checkRateLimit(session.user.id);
+  if (rlResult && !rlResult.success) {
+    const resetAt = new Date(rlResult.reset).toISOString();
+    return new Response(
+      JSON.stringify({
+        error: `Rate limit exceeded. Resets at ${resetAt}`,
+        code: "RATE_LIMIT_EXCEEDED",
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "X-RateLimit-Limit": rlResult.limit.toString(),
+          "X-RateLimit-Remaining": rlResult.remaining.toString(),
+          "X-RateLimit-Reset": rlResult.reset.toString(),
+        },
+      }
+    );
   }
 
   const notebook = await getNotebookForUser(id, session.user.id);
