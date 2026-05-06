@@ -12,6 +12,38 @@ import { prisma } from "@/lib/db/client";
 import { ApiKeyContext } from "@/lib/db/scoped-queries";
 import { UnauthorizedError } from "@/lib/auth/authorize";
 
+// ─── Cache ───────────────────────────────────────────────────────────────────
+
+// Simple in-memory cache for API key lookups to reduce DB load.
+// TTL: 5 minutes. Max size: 1000 entries.
+type CachedApiKey = Awaited<ReturnType<typeof prisma.apiKey.findUnique>>;
+const apiKeyCache = new Map<string, { data: CachedApiKey; expires: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+const MAX_CACHE_SIZE = 1000;
+
+function getCachedApiKey(hash: string): CachedApiKey | undefined {
+  const cached = apiKeyCache.get(hash);
+  if (cached && cached.expires > Date.now()) {
+    return cached.data;
+  }
+  if (cached) {
+    apiKeyCache.delete(hash);
+  }
+  return undefined;
+}
+
+function setCachedApiKey(hash: string, apiKey: CachedApiKey): void {
+  // Basic LRU-ish eviction: if cache is full, clear it and start over.
+  // Better would be true LRU, but for this scale, this is simple and safe.
+  if (apiKeyCache.size >= MAX_CACHE_SIZE) {
+    apiKeyCache.clear();
+  }
+  apiKeyCache.set(hash, {
+    data: apiKey,
+    expires: Date.now() + CACHE_TTL,
+  });
+}
+
 // ─── Rate limiter ─────────────────────────────────────────────────────────────
 
 let ratelimit: Ratelimit | null = null;
@@ -59,7 +91,13 @@ export async function authenticateApiKey(
 
   // 2. Hash and lookup
   const hash = createHash("sha256").update(token).digest("hex");
-  const apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hash } });
+
+  let apiKey = getCachedApiKey(hash);
+
+  if (apiKey === undefined) {
+    apiKey = await prisma.apiKey.findUnique({ where: { keyHash: hash } });
+    setCachedApiKey(hash, apiKey);
+  }
 
   if (!apiKey) {
     throw new UnauthorizedError("Invalid API key");
