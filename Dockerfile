@@ -5,8 +5,9 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json package-lock.json* ./
-# Use npm ci for clean, deterministic installs
-RUN npm ci
+# --legacy-peer-deps: openai@4 lists zod@^3 as peerOptional but we use zod@4.
+# It's optional-only so this is safe; local `npm install` uses the same flag implicitly.
+RUN npm ci --legacy-peer-deps
 
 # Stage 2: Build the application
 FROM base AS builder

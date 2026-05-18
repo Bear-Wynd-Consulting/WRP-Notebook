@@ -15,8 +15,8 @@
 services:
   # ── Phase 2 llmster service ───────────────────────────────────────────────
   llmster:
-    profiles: [phase2]
-    image: ghcr.io/lmstudio-ai/llmster:latest
+    profiles: [phase2, ai-pc]
+    image: lmstudio/llmster-preview:latest
     ports:
       - "1234:1234"
     volumes:
@@ -48,6 +48,18 @@ services:
   notebook:
     profiles: [phase2]
     build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      llmster:
+        condition: service_healthy
+    env_file:
+      - .env.local
+
+  # ── AI-PC: pull pre-built notebook image from Docker Hub (no build needed) ──
+  notebook-ai-pc:
+    profiles: [ai-pc]
+    image: wynderoem/wrp-notebook:latest
     ports:
       - "3000:3000"
     depends_on:
