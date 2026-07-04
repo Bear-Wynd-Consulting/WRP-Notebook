@@ -32,16 +32,15 @@ Forked from [open-notebook](https://github.com/lfnovo/open-notebook) (MIT). Rebu
 | Auth (API) | Bearer token API keys — SHA-256 hashed, scoped, rate-limited |
 | AI — responses | Anthropic Claude (claude-sonnet-4-6 / claude-haiku-4-5) via Vercel AI SDK |
 | AI — embeddings | OpenAI `text-embedding-3-small` via Vercel AI SDK |
-| Background jobs | Inngest — serverless step functions |
-| File storage | Vercel Blob — PDFs and audio files |
-| Rate limiting | Upstash Redis |
+| Source processing | Synchronous — PDF parsing, chunking, and embedding run inline (no job queue); PDFs use an in-memory two-phase flow, never touching file storage |
+| Rate limiting | Upstash Redis (optional — disabled if unset) |
 | Deployment | Vercel (app + jobs) + Neon (database) |
 
 ---
 
 ## Required Services & API Keys
 
-You need accounts and API keys for each of the following before the app will fully function.
+You need accounts and API keys for each of the following before the app will fully function (Upstash is optional — see below).
 
 ### 1. Neon (PostgreSQL database)
 - Sign up at [neon.tech](https://neon.tech)
@@ -60,28 +59,22 @@ You need accounts and API keys for each of the following before the app will ful
 - Used for: generating text embeddings (`text-embedding-3-small`) for semantic search
 - Note: only embeddings use OpenAI; all chat/generation uses Anthropic
 
-### 4. Inngest (background job processing)
-- Sign up at [inngest.com](https://www.inngest.com)
-- Create an app and note the **Event Key** and **Signing Key**
-- Used for: processing uploaded sources (PDF parsing, URL fetching, chunking, embedding)
-- Local dev: run `npx inngest-cli@latest dev` alongside `npm run dev`
-
-### 5. Upstash Redis (rate limiting)
+### 4. Upstash Redis (rate limiting — optional)
 - Sign up at [upstash.com](https://upstash.com)
 - Create a Redis database (free tier is sufficient)
 - Copy the **REST URL** and **REST Token**
 - Used for: enforcing per-API-key rate limits on public API endpoints
+- If omitted, rate limiting is simply disabled (no fallback) — fine for local dev, not recommended for production
 
-### 6. Vercel Blob (file storage)
-- Available automatically in a Vercel project
-- In Vercel dashboard: **Storage** → **Create Database** → **Blob**
-- Copy the **BLOB_READ_WRITE_TOKEN**
-- Used for: storing uploaded PDFs and audio files before background processing
-
-### 7. Vercel (hosting)
+### 5. Vercel (hosting)
 - Sign up at [vercel.com](https://vercel.com)
 - Connect your GitHub repository and import the project
 - All environment variables below must be added in **Project Settings → Environment Variables**
+
+> **Note:** `@vercel/blob` is a listed dependency (and `Source.blobUrl` exists in the schema) but has no
+> current call sites — PDFs use an in-memory two-phase flow and other source types store content
+> directly, so no file ever reaches Blob storage today. `BLOB_READ_WRITE_TOKEN` is not required to run
+> the app; it's left in place for a planned future binary-upload path.
 
 ---
 
@@ -104,10 +97,7 @@ npx prisma generate
 # 5. Apply pending migrations to your Neon database
 npx prisma migrate deploy
 
-# 6. Start the Inngest dev server (in a separate terminal)
-npx inngest-cli@latest dev
-
-# 7. Start the Next.js dev server
+# 6. Start the Next.js dev server
 npm run dev
 ```
 
@@ -117,7 +107,7 @@ Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
 
 ## Environment Variables
 
-Create a `.env.local` file in the project root with the following values. All are required for the app to function.
+Create a `.env.local` file in the project root with the following values. Everything except Upstash and Blob is required for the app to function.
 
 ```bash
 # ─── Database (Neon) ───────────────────────────────────────────────────────────
@@ -148,15 +138,14 @@ OPENAI_API_KEY="sk-..."
 # Generate with: openssl rand -hex 32
 CREDENTIAL_ENCRYPTION_KEY="<64-hex-char-key>"
 
-# ─── Inngest (Background Jobs) ────────────────────────────────────────────────
-INNGEST_SIGNING_KEY="signkey-..."
-INNGEST_EVENT_KEY="..."
-
-# ─── Upstash Redis (Rate Limiting) ────────────────────────────────────────────
+# ─── Upstash Redis (Rate Limiting — optional) ─────────────────────────────────
+# If unset, rate limiting on /api/v1/* is simply disabled (no fallback limiter).
 UPSTASH_REDIS_REST_URL="https://..."
 UPSTASH_REDIS_REST_TOKEN="..."
 
-# ─── File Storage (Vercel Blob) ───────────────────────────────────────────────
+# ─── File Storage (Vercel Blob — currently unused, no call sites) ─────────────
+# Not read anywhere in the app today; safe to omit. Kept for a planned future
+# binary-upload path. See the note under "Required Services" above.
 BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 ```
 
@@ -512,8 +501,8 @@ When adding a source via `POST /api/v1/notebooks/:id/sources`, set `type` to one
 | `text` | JSON body with `text` field | Chunks and embeds content directly |
 | `url` | JSON body with `url` field | Fetches page, strips HTML, chunks and embeds |
 | `youtube` | JSON body with `url` field | Fetches page content; full transcript requires YouTube Data API |
-| `pdf` | `multipart/form-data` with `file` field | Uploads to Vercel Blob, parses with pdf-parse, chunks and embeds |
-| `audio` | `multipart/form-data` with `file` field | Uploads to Vercel Blob; transcription via Whisper (coming soon) |
+| `pdf` | **Not** via this endpoint — use the two-phase flow: `POST /api/v1/sources/extract` (parses in-memory, never persisted) then `POST /api/v1/sources/commit` (saves + embeds, no file storage involved) |
+| `audio` | `multipart/form-data` with `file` field | ⚠️ Not functional yet — the uploaded buffer is decoded as UTF-8 text, which corrupts real audio files. Whisper transcription is not implemented. |
 
 ---
 
@@ -528,12 +517,6 @@ vercel --prod --scope bear-wynd-consultings-projects
 
 Add all environment variables listed above in **Vercel → Project Settings → Environment Variables**. The `NEXTAUTH_URL` must be set to the production URL (`https://wrp-notebook.vercel.app`).
 
-### Inngest on Vercel
-
-1. In the [Inngest dashboard](https://app.inngest.com), add a new app pointing to `https://wrp-notebook.vercel.app/api/inngest`
-2. Inngest will automatically discover and register the `process-source` function
-3. No separate worker deployment is needed — Inngest invokes the `/api/inngest` route directly
-
 ### Development commands
 
 ```bash
@@ -545,8 +528,6 @@ npx prisma studio          # Open database GUI
 npx prisma migrate dev     # Create and apply a new migration
 npx prisma migrate deploy  # Apply pending migrations (CI/production)
 npx prisma generate        # Regenerate Prisma client after schema change
-
-npx inngest-cli@latest dev  # Start local Inngest dev server
 ```
 
 ---
