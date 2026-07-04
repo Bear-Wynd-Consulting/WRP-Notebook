@@ -13,6 +13,40 @@
 # Usage: docker compose --profile phase2 --env-file .env.local up --build
 
 services:
+  # ── Local Postgres + pgvector (no profile — always started) ──────────────
+  # Isolated dev database; keeps local testing off the shared Neon project.
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: notebook
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Neon WebSocket proxy shim ──────────────────────────────────────────────
+  # @prisma/adapter-neon speaks Neon's wss:// proxy protocol, not plain
+  # Postgres wire protocol. This shim translates it to the plain postgres
+  # container above so lib/db/client.ts doesn't need a second adapter.
+  wsproxy:
+    image: ghcr.io/neondatabase/wsproxy:latest
+    environment:
+      APPEND_PORT: "postgres:5432"
+      ALLOW_ADDR_REGEX: ".*"
+      LOG_TRAFFIC: "true"
+    ports:
+      - "4444:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # ── Phase 2 llmster service ───────────────────────────────────────────────
   llmster:
     profiles: [phase2, ai-pc]
@@ -22,13 +56,6 @@ services:
     volumes:
       - ~/.lmstudio/models:/root/.lmstudio/models
       - llmster-state:/root/.lmstudio/state
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     command: >
       sh -c "
         lms daemon up &&
@@ -53,6 +80,8 @@ services:
     depends_on:
       llmster:
         condition: service_healthy
+      wsproxy:
+        condition: service_started
     env_file:
       - .env.local
 
@@ -65,6 +94,8 @@ services:
     depends_on:
       llmster:
         condition: service_healthy
+      wsproxy:
+        condition: service_started
     env_file:
       - .env.local
 
@@ -77,6 +108,9 @@ services:
     build: .
     ports:
       - "3000:3000"
+    depends_on:
+      wsproxy:
+        condition: service_started
     env_file:
       - .env.local
     extra_hosts:
@@ -84,3 +118,4 @@ services:
 
 volumes:
   llmster-state:
+  postgres-data:

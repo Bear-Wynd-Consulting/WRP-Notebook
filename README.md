@@ -121,10 +121,14 @@ Create a `.env.local` file in the project root with the following values. All ar
 
 ```bash
 # ─── Database (Neon) ───────────────────────────────────────────────────────────
-# Pooler endpoint — used at runtime by the Neon serverless driver
-DATABASE_URL="postgresql://neondb_owner:...@ep-xxx-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+# Pooler endpoint — used at runtime by the Neon serverless driver.
+# Use wrp_notebook_app (CRUD on schema "notebook", no DDL) — NOT neondb_owner.
+# See "Applying migrations" below for why the runtime credential must not have DDL rights.
+DATABASE_URL="postgresql://wrp_notebook_app:...@ep-xxx-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
-# Direct endpoint — used by Prisma CLI for migrations
+# Direct endpoint — used by Prisma CLI for migrations ONLY.
+# Not read by the app at runtime (see lib/db/client.ts) and not needed in Vercel's
+# deployed env vars. Only set this locally, transiently, when running a migration.
 DIRECT_URL="postgresql://neondb_owner:...@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 # Read-only connection to WRP property management tables (run scripts/setup-readonly-role.sql first)
@@ -165,6 +169,27 @@ BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 ```bash
 npx prisma migrate deploy
 ```
+
+### Applying migrations to production (deliberately manual)
+
+`DATABASE_URL` (the credential deployed to Vercel) is `wrp_notebook_app`, which only has
+`SELECT`/`INSERT`/`UPDATE`/`DELETE` on the `notebook` schema — no `CREATE`/`ALTER`/`DROP`.
+This is intentional: the running app should never hold a credential capable of changing
+its own schema. Vercel's build (`prisma generate && next build`) and CI never run
+`prisma migrate deploy`, so no DDL-capable credential exists in any deployed environment.
+
+To apply a new migration to the live database, run it manually from your machine using
+the `neondb_owner` connection string (get it from the Neon Console → Connection Details;
+keep it in a password manager, never in a committed file):
+
+```bash
+DIRECT_URL="postgresql://neondb_owner:...@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require" \
+  npx prisma migrate deploy
+```
+
+If a migration adds a new table, `wrp_notebook_app` will automatically get `SELECT`/
+`INSERT`/`UPDATE`/`DELETE` on it — this project's `ALTER DEFAULT PRIVILEGES` was already
+applied for the `notebook` schema. It will **not** get `CREATE`, by design.
 
 ### WRP property management read-only access
 

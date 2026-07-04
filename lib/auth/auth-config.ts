@@ -36,7 +36,10 @@ const authConfig: NextAuthConfig = {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: process.env.NODE_ENV === "production",
+        // Tied to the actual URL scheme rather than NODE_ENV alone: Docker
+        // builds always set NODE_ENV=production, including local http://
+        // testing, where a Secure cookie would silently fail to persist.
+        secure: process.env.NEXTAUTH_URL?.startsWith("https://") ?? process.env.NODE_ENV === "production",
       },
     },
   },
