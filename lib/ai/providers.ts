@@ -19,16 +19,16 @@ const openAICompat = createOpenAI({
 
 /** Primary LLM for chat, ask, and transformations */
 export const primaryLlm = process.env.LLM_BASE_URL
-  ? openAICompat(LLM_MODEL)
+  ? openAICompat.chat(LLM_MODEL)
   : anthropic(process.env.LLM_MODEL ?? "claude-sonnet-4-6");
 
 /** Fast model for lightweight tasks */
 export const fastLlm = process.env.LLM_BASE_URL
-  ? openAICompat(LLM_MODEL)
+  ? openAICompat.chat(LLM_MODEL)
   : anthropic(process.env.FAST_LLM_MODEL ?? "claude-haiku-4-5-20251001");
 
 /** Fallback — always OpenAI-compat (local or cloud) */
-export const fallbackLlm = openAICompat(LLM_MODEL);
+export const fallbackLlm = openAICompat.chat(LLM_MODEL);
 
 /** Must match the vector(N) dimension in schema.prisma */
 export const EMBEDDING_DIMENSIONS = parseInt(

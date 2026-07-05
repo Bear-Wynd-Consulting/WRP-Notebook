@@ -9,11 +9,12 @@
  * Returns: { structuredData: OutputData, rawText: string }
  */
 import { NextRequest } from "next/server";
+import { generateText } from "ai";
 import { auth } from "@/lib/auth/auth-config";
 import { validateUpload } from "@/lib/security/file-upload";
 import { handleApiError, apiError } from "@/lib/api/error-response";
 import { AI_LIMITS } from "@/lib/ai/cost-guard";
-import { llmClient, LLM_MODEL } from "@/lib/ai/llm-client";
+import { fastLlm } from "@/lib/ai/providers";
 
 async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number }> {
   // pdf-parse@2 exports PDFParse class (not a function). Use the class API directly.
@@ -90,9 +91,9 @@ export async function POST(req: NextRequest) {
     // Ask the LLM to structure the text as Editor.js JSON
     let structuredData: unknown;
     try {
-      const message = await llmClient.messages.create({
-        model: LLM_MODEL,
-        max_tokens: 4000,
+      const { text: responseText } = await generateText({
+        model: fastLlm,
+        maxOutputTokens: AI_LIMITS.MAX_OUTPUT_TOKENS,
         temperature: 0.1,
         system: "You output strict, valid JSON only. No markdown formatting, no explanation, no prose.",
         messages: [
@@ -103,11 +104,8 @@ export async function POST(req: NextRequest) {
         ],
       });
 
-      const responseText =
-        message.content[0].type === "text" ? message.content[0].text.trim() : "";
-
       // Strip any accidental markdown fences the model adds
-      const cleaned = responseText
+      const cleaned = responseText.trim()
         .replace(/^```(?:json)?\s*/i, "")
         .replace(/\s*```$/i, "")
         .trim();

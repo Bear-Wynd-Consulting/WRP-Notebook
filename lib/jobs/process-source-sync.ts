@@ -1,5 +1,6 @@
+import { generateText } from "ai";
 import { prisma } from "@/lib/db/client";
-import { llmClient, LLM_MODEL } from "@/lib/ai/llm-client";
+import { fastLlm } from "@/lib/ai/providers";
 import { generateEmbedding } from "@/lib/ai/task-aware-embed";
 import { AI_LIMITS, truncateSourceText } from "@/lib/ai/cost-guard";
 import { sanitizeContent } from "@/lib/security/sanitize";
@@ -10,8 +11,11 @@ function chunkText(text: string, maxChars = 2000, overlap = 200): string[] {
   while (start < text.length) {
     const end = Math.min(start + maxChars, text.length);
     chunks.push(text.slice(start, end).trim());
+    // Reached the end — stop before recomputing start, which for text
+    // shorter than `overlap` would produce a non-advancing (or negative)
+    // value and loop forever, growing `chunks` until the process OOMs.
+    if (end >= text.length) break;
     start = end - overlap;
-    if (start >= text.length) break;
   }
   return chunks.filter((c) => c.length > 50);
 }
@@ -103,9 +107,9 @@ export async function processSourceSync(sourceId: string): Promise<void> {
     }
 
     const preview = extractedText.slice(0, 10_000);
-    const response = await llmClient.messages.create({
-      model: LLM_MODEL,
-      max_tokens: 500,
+    const { text: summaryText } = await generateText({
+      model: fastLlm,
+      maxOutputTokens: 500,
       messages: [
         {
           role: "user",
@@ -113,11 +117,6 @@ export async function processSourceSync(sourceId: string): Promise<void> {
         },
       ],
     });
-
-    const summaryText = response.content
-      .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-      .map((b) => b.text)
-      .join(" ");
 
     await prisma.source.update({
       where: { id: sourceId },

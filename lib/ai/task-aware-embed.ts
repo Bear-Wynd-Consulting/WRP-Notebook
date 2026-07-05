@@ -58,6 +58,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     model: EMBEDDING_MODEL,
     input: text,
     dimensions: EMBEDDING_DIMENSIONS,
+    // The openai SDK defaults to base64-encoded embeddings; llmster's
+    // emulation of that mishandles it, silently truncating the decoded
+    // vector (768 dims came back as 192). "float" is fully supported by
+    // both real OpenAI and llmster, so force it explicitly.
+    encoding_format: "float",
   });
   return response.data[0].embedding;
 }
@@ -67,6 +72,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     model: EMBEDDING_MODEL,
     input: texts,
     dimensions: EMBEDDING_DIMENSIONS,
+    encoding_format: "float",
   });
   return response.data.sort((a, b) => a.index - b.index).map(d => d.embedding);
 }
