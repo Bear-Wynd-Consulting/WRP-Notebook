@@ -2,13 +2,19 @@
  * Notebook detail page — sources, notes, database access, and chat interface.
  */
 import { auth } from "@/lib/auth/auth-config";
-import { getNotebookForUser, getSourcesForNotebook, getNotesForNotebook } from "@/lib/db/scoped-queries";
+import {
+  getNotebookForUser,
+  getNotebookByIdAdmin,
+  getSourcesForNotebook,
+  getNotesForNotebook,
+} from "@/lib/db/scoped-queries";
 import { notFound } from "next/navigation";
 import { SourceCard } from "@/components/sources/SourceCard";
 import { NoteCard } from "@/components/notes/NoteCard";
 import { VisibilityBadge } from "@/components/notebooks/VisibilityBadge";
 import { AddSourceForm } from "@/components/sources/AddSourceForm";
 import { DatabaseSelector } from "@/components/notebooks/DatabaseSelector";
+import { GenerateApiKeyForm } from "@/components/notebooks/GenerateApiKeyForm";
 import { ChatInterface } from "@/components/chat/ChatInterface";
 import type { Source, Note } from "@/app/generated/prisma/client";
 
@@ -22,12 +28,16 @@ export default async function NotebookDetailPage({
   const session = await auth();
   const { id } = await params;
   const { source_error } = await searchParams;
+  const isAdmin = session?.user.role === "admin";
 
-  const [notebook, sources, notes] = await Promise.all([
+  const [ownNotebook, sources, notes] = await Promise.all([
     getNotebookForUser(id, session!.user.id),
     getSourcesForNotebook(id),
     getNotesForNotebook(id),
   ]);
+
+  // Admins may view (and generate API keys for) notebooks they don't own.
+  const notebook = ownNotebook ?? (isAdmin ? await getNotebookByIdAdmin(id) : null);
 
   if (!notebook) notFound();
 
@@ -123,6 +133,19 @@ export default async function NotebookDetailPage({
           enabledDatabases={notebook.databases}
         />
       </section>
+
+      {/* API Access (admin only) */}
+      {isAdmin && (
+        <section>
+          <h2 className="text-lg font-semibold mb-1" style={{ color: "var(--wrp-dark)" }}>
+            API Access
+          </h2>
+          <p className="text-sm mb-3" style={{ color: "var(--wrp-text-muted)" }}>
+            Generate an API key restricted to this notebook for 3rd-party app integration.
+          </p>
+          <GenerateApiKeyForm notebookId={id} />
+        </section>
+      )}
     </div>
   );
 }

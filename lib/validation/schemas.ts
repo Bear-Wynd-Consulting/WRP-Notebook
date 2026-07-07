@@ -93,6 +93,14 @@ export const createApiKeySchema = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
+/** Notebook-scoped key creation from the notebook detail page — admin session only. */
+export const createNotebookApiKeySchema = z.object({
+  name: z.string().min(1).max(100).trim(),
+  scope: z.enum(["INTERNAL", "EXTERNAL"]).default("EXTERNAL"),
+  rateLimit: z.number().int().min(1).max(10_000).default(100),
+  expiresAt: z.string().datetime().optional(),
+});
+
 // ─── Pagination ───────────────────────────────────────────────────────────────
 
 export const paginationSchema = z.object({

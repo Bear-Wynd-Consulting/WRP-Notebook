@@ -75,6 +75,41 @@ export async function getNotebookForUser(
   });
 }
 
+/**
+ * Get a single notebook by id, ignoring ownership.
+ * Admin-only routes must check session.user.role === 'admin' before calling this.
+ */
+export async function getNotebookByIdAdmin(notebookId: string) {
+  return prisma.notebook.findFirst({
+    where: { id: notebookId, deletedAt: null },
+  });
+}
+
+/**
+ * Get every non-deleted notebook, ignoring ownership.
+ * Admin-only routes must check session.user.role === 'admin' before calling this.
+ */
+export async function getAllNotebooksAdmin() {
+  return prisma.notebook.findMany({
+    where: { deletedAt: null },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+/**
+ * Look up users by id (e.g. to resolve notebook owner emails for display).
+ * Admin-only routes must check session.user.role === 'admin' before calling this.
+ */
+export async function getUsersByIds(ids: string[]) {
+  if (ids.length === 0) return [];
+  return prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, email: true },
+  });
+}
+
 // ─── Sources ──────────────────────────────────────────────────────────────────
 
 /** Sources for a notebook — scoped via join table. */
@@ -163,6 +198,34 @@ export async function getChatMessagesForSession(chatSessionId: string) {
   return prisma.chatMessage.findMany({
     where: { chatSessionId },
     orderBy: { createdAt: "asc" },
+  });
+}
+
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
+/** Create an API key restricted to a single notebook. Admin session routes only. */
+export async function createNotebookApiKey(data: {
+  name: string;
+  keyHash: string;
+  keyPrefix: string;
+  scope: "INTERNAL" | "EXTERNAL";
+  notebookId: string;
+  rateLimit: number;
+  expiresAt?: Date;
+  ownerId: string;
+}) {
+  return prisma.apiKey.create({
+    data: {
+      name: data.name,
+      keyHash: data.keyHash,
+      keyPrefix: data.keyPrefix,
+      scope: data.scope,
+      permissions: [],
+      notebookIds: [data.notebookId],
+      rateLimit: data.rateLimit,
+      expiresAt: data.expiresAt,
+      ownerId: data.ownerId,
+    },
   });
 }
 
