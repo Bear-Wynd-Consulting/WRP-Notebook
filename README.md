@@ -13,6 +13,7 @@ Forked from [open-notebook](https://github.com/lfnovo/open-notebook) (MIT). Rebu
 - [Tech Stack](#tech-stack)
 - [Required Services & API Keys](#required-services--api-keys)
 - [Local Development Setup](#local-development-setup)
+- [Local LLM Development (Docker)](#local-llm-development-docker)
 - [Environment Variables](#environment-variables)
 - [Database Setup](#database-setup)
 - [Generating API Keys for External Apps](#generating-api-keys-for-external-apps)
@@ -30,11 +31,11 @@ Forked from [open-notebook](https://github.com/lfnovo/open-notebook) (MIT). Rebu
 | ORM | Prisma v7 + Neon serverless PostgreSQL + pgvector |
 | Auth (UI) | NextAuth.js v5 — JWT, 8h session, httpOnly cookie |
 | Auth (API) | Bearer token API keys — SHA-256 hashed, scoped, rate-limited |
-| AI — responses | Anthropic Claude (claude-sonnet-4-6 / claude-haiku-4-5) via Vercel AI SDK |
-| AI — embeddings | OpenAI `text-embedding-3-small` via Vercel AI SDK |
+| AI — responses | Anthropic Claude (claude-sonnet-4-6 / claude-haiku-4-5) via Vercel AI SDK — or a local LM Studio model when `LLM_BASE_URL` is set (see [Local LLM Development](#local-llm-development-docker)) |
+| AI — embeddings | OpenAI `text-embedding-3-small` via Vercel AI SDK — or a local LM Studio embedding model when `EMBEDDING_BASE_URL` is set |
 | Source processing | Synchronous — PDF parsing, chunking, and embedding run inline (no job queue); PDFs use an in-memory two-phase flow, never touching file storage |
 | Rate limiting | Upstash Redis (optional — disabled if unset) |
-| Deployment | Vercel (app + jobs) + Neon (database) |
+| Deployment | Vercel (app + jobs) + Neon (database) — or self-contained Docker Compose for local/offline dev |
 
 ---
 
@@ -102,6 +103,70 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
+
+---
+
+## Local LLM Development (Docker)
+
+For fully offline development — no Anthropic/OpenAI keys, no cloud Neon project — `docker-compose.yml` runs the whole stack locally: Postgres + pgvector for the database, a [wsproxy](https://github.com/neondatabase/wsproxy) shim so `@prisma/adapter-neon` (which speaks Neon's `wss://` protocol) can talk to that plain Postgres container, and [LM Studio](https://lmstudio.ai)/`llmster` as an OpenAI-compatible local model server for both chat and embeddings.
+
+`lib/ai/providers.ts` switches providers based on whether `LLM_BASE_URL` is set: unset → Anthropic (chat) + OpenAI (embeddings) against the cloud; set → both chat and embeddings route through the same OpenAI-compatible endpoint at `LLM_BASE_URL` / `EMBEDDING_BASE_URL`. There is no separate fast-model routing locally — `primaryLlm`, `fastLlm`, and `fallbackLlm` all call the same `LLM_MODEL` when running local.
+
+Postgres and wsproxy always start; which `notebook` service (if any) starts alongside them depends on the Compose profile:
+
+| Profile | What it starts | When to use it |
+|---|---|---|
+| `local-dev` | `notebook` container only — reaches LM Studio on the host via `host.docker.internal` | **Default for development.** Run LM Studio yourself (GUI or `lms server start --port 1234`), load whatever models you want, then start just the app container. |
+| `phase2` | `llmster` container + `notebook` container | Fully self-contained, no host-installed LM Studio. Needs the NVIDIA Container Toolkit for GPU passthrough on Linux; on Apple Silicon it falls back to CPU-only inference (no Metal passthrough into the container). |
+| `ai-pc` | `llmster` container + `notebook-ai-pc` (pulls `wynderoem/wrp-notebook:latest` from Docker Hub — no local build) | A pre-provisioned "AI PC" — skips the `npm ci` + `next build` steps entirely. |
+
+```bash
+# Phase 1 (recommended) — LM Studio on the host, notebook in Docker
+lms server start --port 1234
+docker compose --profile local-dev --env-file .env.local up --build
+
+# Phase 2 — fully self-contained, llmster runs as a container too
+docker compose --profile phase2 --env-file .env.local up --build
+
+# AI-PC — pull the pre-built image, no build step
+docker compose --profile ai-pc --env-file .env.local up
+```
+
+The `phase2`/`ai-pc` `llmster` container auto-loads `gemma-4-2b-it` (chat) and `embedding-gemma-300m` (embeddings) on startup. If you load different models — either in the `local-dev` profile's host LM Studio, or by editing the `lms load` command for `phase2`/`ai-pc` — set `LLM_MODEL` / `EMBEDDING_MODEL` in `.env.local` to match exactly, or requests will 404 against LM Studio's model registry.
+
+Required `.env.local` values for this mode (see [Environment Variables](#environment-variables) for the rest):
+
+```bash
+LOCAL_POSTGRES="true"                        # routes lib/db/client.ts through the wsproxy shim instead of cloud Neon
+# The port in DATABASE_URL is not actually dialed — LOCAL_POSTGRES=true makes
+# lib/db/client.ts rewrite the proxy target to wsproxy:80/v1 regardless of
+# what's written here. Host only matters, but keep it pointed at the wsproxy service.
+DATABASE_URL="postgresql://postgres:postgres@wsproxy:5432/notebook?sslmode=disable"
+DIRECT_URL="postgresql://postgres:postgres@postgres:5432/notebook?sslmode=disable"
+
+LLM_BASE_URL="http://llmster:1234"           # host.docker.internal:1234 instead, for the local-dev profile
+ANTHROPIC_API_KEY="lm-studio"                # unused when LLM_BASE_URL is set — @ai-sdk/anthropic just expects a non-empty value
+LLM_MODEL="gemma-4-2b-it"                    # must match a model already loaded in LM Studio
+
+EMBEDDING_BASE_URL="http://llmster:1234/v1"
+EMBEDDING_API_KEY="lm-studio"
+EMBEDDING_MODEL="embedding-gemma-300m"
+EMBEDDING_DIMENSIONS="768"                    # must match the vector(N) column in prisma/schema.prisma
+```
+
+Once the containers are up, apply migrations and create an admin user the same way as [Database Setup](#database-setup) below — but run `npx prisma migrate deploy` from your host machine (not inside a container), so use the host-mapped port instead of the Docker service name:
+
+```bash
+DIRECT_URL="postgresql://postgres:postgres@localhost:5432/notebook?sslmode=disable" \
+  npx prisma migrate deploy
+```
+
+There's no Neon SQL Editor for the local Postgres container — run SQL directly against it instead:
+
+```bash
+docker exec -it wrp-notebook-postgres-1 psql -U postgres -d notebook \
+  -c "SELECT id, email, role FROM notebook.\"User\";"
+```
 
 ---
 
