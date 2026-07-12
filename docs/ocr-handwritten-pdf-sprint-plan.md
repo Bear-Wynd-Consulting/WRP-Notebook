@@ -4,6 +4,8 @@ Builds on the recommendation in [`ocr-handwritten-pdf-evaluation.md`](./ocr-hand
 
 **Assumptions** (adjust if your team's actuals differ): one engineer, 2-week sprint (10 working days), Fibonacci points, points are the same engineer's — not a team velocity average.
 
+**Build status:** OCR-1, OCR-2, and OCR-4 are scaffolded and tested (see per-ticket notes below) on branch `claude/ocr-handwritten-pdf-eval-96v3iz`, which now includes the full `local_llm_docker` diff merged in. OCR-0 and the real-weight half of OCR-3 could **not** be executed in the sandbox this was built in — `huggingface.co` and `download.pytorch.org` were both blocked by egress policy, so the model-loading code in `ocr/app/engine.py` (`GotOcr2Engine`) is written from the HF model card but unverified against a live run. Everything is built behind a swappable `OcrEngine` interface (`stub` vs `got-ocr2`) specifically so this gap doesn't block the rest of the pipeline. See `ocr/README.md` for exactly what's left to verify on real hardware.
+
 ## Sprint Goal
 
 Ship a working OCR fallback so a scanned/handwritten PDF uploaded through `local_llm_docker` produces structured text instead of failing with `EMPTY_DOCUMENT`, using a CPU-only GOT-OCR2.0 sidecar.
@@ -22,32 +24,31 @@ Ship a working OCR fallback so a scanned/handwritten PDF uploaded through `local
 | **Committed total** | | **21** | |
 | OCR-7 (backlog, not committed) | GPU-tier swap (Qwen2.5-VL/olmOCR) behind `phase2` | 5 | OCR-3 |
 
-### OCR-0 — Spike: benchmark GOT-OCR2.0 CPU latency/page
-Run GOT-OCR2.0 via `transformers` on a representative scanned/handwritten page (no Docker/FastAPI yet) and measure wall-clock time per page on a typical dev machine. This is sequenced *first* because it resolves the sprint's biggest open risk before any integration code is written: if CPU latency is too high for a synchronous HTTP call (e.g. multi-page docs pushing past a reasonable timeout), OCR-4/OCR-5 need to be scoped for async/polling instead of the drop-in-replacement design.
-**Acceptance criteria:** documented seconds/page figure (average + p95 across ≥5 sample pages); go/no-go note on whether the synchronous route design from the evaluation doc still holds, or whether OCR-4 needs to become async.
+### OCR-0 — Spike: benchmark GOT-OCR2.0 CPU latency/page — **blocked, not done**
+Run GOT-OCR2.0 via `transformers` on a representative scanned/handwritten page and measure wall-clock time per page. **Could not be executed**: this sprint's build sandbox had egress policy blocking both `huggingface.co` (weights) and `download.pytorch.org` (CPU-only torch wheel), so no live run was possible. Literature check found only qualitative signal (GOT-OCR2.0 "requires GPUs to reach real-time performance"; VLM-style OCR generally runs 5-10x slower than classic OCR on CPU) — no hard seconds/page figure exists anywhere, measured or published. **Still needs to run** on a machine with normal network access before OCR-4/OCR-5's synchronous-HTTP design is trusted for multi-page documents.
+**Acceptance criteria (unchanged, still open):** documented seconds/page figure (average + p95 across ≥5 sample pages); go/no-go note on whether the synchronous route design holds or OCR-4 needs to become async.
 
-### OCR-1 — Scaffold `ocr` sidecar
-New `ocr` service: `python:3.11-slim` base, FastAPI/uvicorn skeleton, `/health` endpoint, `docker-compose.yml` entry present in `local-dev`, `phase2`, and `ai-pc` profiles. Add `OCR_BASE_URL`, `OCR_ENABLED`, `OCR_TEXT_DENSITY_THRESHOLD` to `.env.example`. Decide and document whether model weights are baked into the image at build time or downloaded on first run (affects image size vs. cold-start time — pick baked-in for predictable startup, matching how `llmster` ships pre-loaded models).
-**Acceptance criteria:** `docker compose --profile local-dev up ocr` starts cleanly; `curl localhost:<port>/health` returns 200.
+### OCR-1 — Scaffold `ocr` sidecar — **done**
+`ocr/` at repo root: `python:3.11-slim` base, FastAPI/uvicorn app (`app/main.py`), `/health` endpoint, `docker-compose.yml` service (no profile — starts in `local-dev`, `phase2`, and `ai-pc` alike, mirroring how `postgres`/`wsproxy` are always-on). `OCR_BASE_URL`, `OCR_ENABLED`, `OCR_TEXT_DENSITY_THRESHOLD` added to `.env.example`; `OCR_ENGINE` set on the `ocr` service itself. Model-weight packaging (baked-in vs. downloaded-on-first-run) is deferred to whoever runs OCR-3's real-weight verification — the `ocr-model-cache` volume in `docker-compose.yml` at least avoids re-downloading across container recreates either way.
+**Verified:** `docker compose config` validates the full merged compose file cleanly; the FastAPI app boots under `TestClient` in tests.
 
-### OCR-2 — PDF rasterization
-Implement PyMuPDF (`fitz`) page-to-image rendering inside the sidecar: ~200 DPI, page-count cap (e.g. first 20 pages), grayscale/contrast normalization.
-**Acceptance criteria:** given a multi-page PDF, sidecar produces one normalized image per page (up to the cap) with unit tests covering a single-page, multi-page, and over-the-cap PDF.
+### OCR-2 — PDF rasterization — **done**
+`ocr/app/rasterize.py`: PyMuPDF (`fitz`) page-to-image rendering, ~200 DPI default, page-count cap (default 20), grayscale output.
+**Verified:** `ocr/tests/test_rasterize.py` (4 tests, passing) covers single-page, multi-page, over-the-cap truncation, and DPI affecting output size — using PDFs generated on the fly with `fitz`, no external fixtures needed.
 
-### OCR-3 — Model integration
-Load GOT-OCR2.0 weights, implement `POST /ocr` (PDF bytes in → `{ text, numpages }` out), reusing OCR-2's rasterization internally.
-**Acceptance criteria:** posting a sample handwritten PDF returns non-empty, roughly-correct text; posting a corrupt/non-PDF file returns a clean 4xx, not a crash.
+### OCR-3 — Model integration — **half done**
+`POST /ocr` (`ocr/app/main.py`) is implemented and wired to a swappable `OcrEngine` interface (`ocr/app/engine.py`): `StubEngine` (deterministic placeholder, no weights, no network) and `GotOcr2Engine` (loads `stepfun-ai/GOT-OCR2_0` via `transformers.AutoModelForImageTextToText`). **The `stub` half is done and tested; the real `got-ocr2` half is unverified** — it was written from the HF model card but the same egress block that stopped OCR-0 also prevented ever instantiating this class. Whoever picks this up next needs to actually run it against a real handwritten page and confirm the processor/model calls are correct before flipping `OCR_ENGINE=got-ocr2` in production.
+**Verified:** `ocr/tests/test_main.py` (4 tests, passing) exercises `/health`, empty-body rejection, non-PDF rejection, and a full round-trip against `StubEngine`. **Not verified:** `GotOcr2Engine` end-to-end.
 
-### OCR-4 — Wire extract-route fallback
-In `app/api/v1/sources/extract/route.ts`, after `pdf-parse` runs, compute chars-per-page; below `OCR_TEXT_DENSITY_THRESHOLD` (or zero text), call the sidecar instead of throwing `EMPTY_DOCUMENT`. Reuses the existing `{ text, numpages }` shape so downstream `fastLlm` structuring is untouched. Add `source: "text-layer" | "ocr"` to the response.
-**Acceptance criteria:** a normal typed-text PDF is unaffected (regression check — no sidecar call, `source: "text-layer"`); a scanned/handwritten PDF now completes instead of erroring, tagged `source: "ocr"`.
+### OCR-4 — Wire extract-route fallback — **done**
+`app/api/v1/sources/extract/route.ts`: computes chars-per-page after `pdf-parse` runs; below `OCR_TEXT_DENSITY_THRESHOLD` (or zero text), calls the sidecar (`lib/ocr/client.ts`) instead of throwing `EMPTY_DOCUMENT` outright — but only when `OCR_ENABLED` is set, so branches/deployments without the sidecar keep today's exact behavior. Reuses the existing `{ text, numpages }` shape, so downstream `fastLlm` structuring is untouched. Response now includes `source: "text-layer" | "ocr"`.
+**Verified:** `npx tsc --noEmit` and `npx eslint` clean on the changed files; `lib/ocr/__tests__/client.test.ts` (4 tests, passing) covers the success path, missing-field defaults, sidecar-unreachable, and non-2xx cases. **Not verified:** an actual end-to-end request through a running `docker compose` stack (needs OCR-0/OCR-3's real-weight verification first to be meaningful).
 
-### OCR-5 — Error handling & UX
-Handle sidecar unreachable (network/timeout) and sidecar-returns-still-empty (genuinely blank page) as distinct cases. Decide and implement the user-facing behavior (e.g. partial-success banner suggesting manual entry vs. a clear error), informed by OCR-0's latency findings for timeout tuning.
-**Acceptance criteria:** killing the `ocr` container mid-request produces a clear, non-crashing error to the user; a blank input page returns a clear "no text found" state, not a silent empty note.
+### OCR-5 — Error handling & UX — **partially done**
+The route distinguishes sidecar-unreachable (`OcrUnavailableError` → `503 OCR_UNAVAILABLE`) from OCR-still-returned-empty (`422 EMPTY_DOCUMENT`, distinct message from the pre-OCR case) — both are implemented and unit-tested (see OCR-4). **Not done:** any UI-facing treatment (e.g. a banner distinguishing an OCR'd note from a text-layer one, using the new `source` field) — the ticket's UX-decision half is still open and wasn't attempted here since it's a frontend/product call, not a backend plumbing one.
 
-### OCR-6 — Validation & tuning
-Test against a small real-world set of handwritten scans (cursive, mixed print/cursive, multi-page inspection notes if available from the property management use case). Tune `OCR_TEXT_DENSITY_THRESHOLD` against both false positives (typed PDFs routed to OCR unnecessarily) and false negatives (lightly-scanned pages that should've gone to OCR but didn't). Update both docs with final measured numbers.
+### OCR-6 — Validation & tuning — **not started**
+Test against a small real-world set of handwritten scans (cursive, mixed print/cursive, multi-page inspection notes if available from the property management use case). Tune `OCR_TEXT_DENSITY_THRESHOLD` against both false positives (typed PDFs routed to OCR unnecessarily) and false negatives (lightly-scanned pages that should've gone to OCR but didn't). Update both docs with final measured numbers. Blocked on OCR-0/OCR-3's real-weight verification — there's nothing meaningful to validate against the `stub` engine.
 **Acceptance criteria:** threshold value justified with example cases; evaluation doc's "unbenchmarked latency" risk note replaced with actual measured numbers; at least one real handwritten sample ingested end-to-end into a notebook.
 
 ## Suggested Day-by-Day Sequencing
@@ -61,6 +62,16 @@ Test against a small real-world set of handwritten scans (cursive, mixed print/c
 | 7 | OCR-4 |
 | 8 | OCR-5 |
 | 9–10 | OCR-6 + buffer/bug-fix slack |
+
+## Remaining Work
+
+The blocker is the same for all of it: someone with normal network access (not this sandbox) needs to actually run the real OCR engine.
+
+1. Run OCR-0's benchmark for real against `GotOcr2Engine` on representative hardware; confirm/revise the synchronous route design.
+2. Smoke-test `GotOcr2Engine` (`ocr/app/engine.py`) directly — verify the `AutoProcessor`/`AutoModelForImageTextToText` calls actually produce sane text on a real handwritten page.
+3. Set `OCR_ENGINE=got-ocr2` in `docker-compose.yml` (or `.env.local`) and run `docker compose --profile local-dev up --build` end-to-end with a real scanned/handwritten PDF through the notebook UI.
+4. OCR-6: tune `OCR_TEXT_DENSITY_THRESHOLD` against real samples.
+5. OCR-5's UI-facing half: decide how `source: "ocr"` should surface to the user (banner, badge, etc.) and implement it.
 
 ## Definition of Done (sprint-level)
 

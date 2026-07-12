@@ -1,0 +1,15 @@
+fastapi==0.121.3
+uvicorn[standard]==0.39.1
+python-multipart==0.0.21
+pymupdf==1.26.6
+pillow==12.1.0
+
+# Model runtime for the real OCR engine (OCR_ENGINE=got-ocr2). Not required for
+# OCR_ENGINE=stub, but kept in the same image so switching engines is a config
+# change, not a rebuild. See app/engine.py for why this is untested in CI today.
+torch==2.13.0
+transformers==4.57.1
+accelerate==1.11.0
+
+pytest==9.0.2
+httpx==0.28.1
