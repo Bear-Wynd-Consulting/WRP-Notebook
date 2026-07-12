@@ -13,6 +13,7 @@ Forked from [open-notebook](https://github.com/lfnovo/open-notebook) (MIT). Rebu
 - [Tech Stack](#tech-stack)
 - [Required Services & API Keys](#required-services--api-keys)
 - [Local Development Setup](#local-development-setup)
+- [Local LLM Development (Docker)](#local-llm-development-docker)
 - [Environment Variables](#environment-variables)
 - [Database Setup](#database-setup)
 - [Generating API Keys for External Apps](#generating-api-keys-for-external-apps)
@@ -30,18 +31,17 @@ Forked from [open-notebook](https://github.com/lfnovo/open-notebook) (MIT). Rebu
 | ORM | Prisma v7 + Neon serverless PostgreSQL + pgvector |
 | Auth (UI) | NextAuth.js v5 — JWT, 8h session, httpOnly cookie |
 | Auth (API) | Bearer token API keys — SHA-256 hashed, scoped, rate-limited |
-| AI — responses | Anthropic Claude (claude-sonnet-4-6 / claude-haiku-4-5) via Vercel AI SDK |
-| AI — embeddings | OpenAI `text-embedding-3-small` via Vercel AI SDK |
-| Background jobs | Inngest — serverless step functions |
-| File storage | Vercel Blob — PDFs and audio files |
-| Rate limiting | Upstash Redis |
-| Deployment | Vercel (app + jobs) + Neon (database) |
+| AI — responses | Anthropic Claude (claude-sonnet-4-6 / claude-haiku-4-5) via Vercel AI SDK — or a local LM Studio model when `LLM_BASE_URL` is set (see [Local LLM Development](#local-llm-development-docker)) |
+| AI — embeddings | OpenAI `text-embedding-3-small` via Vercel AI SDK — or a local LM Studio embedding model when `EMBEDDING_BASE_URL` is set |
+| Source processing | Synchronous — PDF parsing, chunking, and embedding run inline (no job queue); PDFs use an in-memory two-phase flow, never touching file storage |
+| Rate limiting | Upstash Redis (optional — disabled if unset) |
+| Deployment | Vercel (app + jobs) + Neon (database) — or self-contained Docker Compose for local/offline dev |
 
 ---
 
 ## Required Services & API Keys
 
-You need accounts and API keys for each of the following before the app will fully function.
+You need accounts and API keys for each of the following before the app will fully function (Upstash is optional — see below).
 
 ### 1. Neon (PostgreSQL database)
 - Sign up at [neon.tech](https://neon.tech)
@@ -60,28 +60,22 @@ You need accounts and API keys for each of the following before the app will ful
 - Used for: generating text embeddings (`text-embedding-3-small`) for semantic search
 - Note: only embeddings use OpenAI; all chat/generation uses Anthropic
 
-### 4. Inngest (background job processing)
-- Sign up at [inngest.com](https://www.inngest.com)
-- Create an app and note the **Event Key** and **Signing Key**
-- Used for: processing uploaded sources (PDF parsing, URL fetching, chunking, embedding)
-- Local dev: run `npx inngest-cli@latest dev` alongside `npm run dev`
-
-### 5. Upstash Redis (rate limiting)
+### 4. Upstash Redis (rate limiting — optional)
 - Sign up at [upstash.com](https://upstash.com)
 - Create a Redis database (free tier is sufficient)
 - Copy the **REST URL** and **REST Token**
 - Used for: enforcing per-API-key rate limits on public API endpoints
+- If omitted, rate limiting is simply disabled (no fallback) — fine for local dev, not recommended for production
 
-### 6. Vercel Blob (file storage)
-- Available automatically in a Vercel project
-- In Vercel dashboard: **Storage** → **Create Database** → **Blob**
-- Copy the **BLOB_READ_WRITE_TOKEN**
-- Used for: storing uploaded PDFs and audio files before background processing
-
-### 7. Vercel (hosting)
+### 5. Vercel (hosting)
 - Sign up at [vercel.com](https://vercel.com)
 - Connect your GitHub repository and import the project
 - All environment variables below must be added in **Project Settings → Environment Variables**
+
+> **Note:** `@vercel/blob` is a listed dependency (and `Source.blobUrl` exists in the schema) but has no
+> current call sites — PDFs use an in-memory two-phase flow and other source types store content
+> directly, so no file ever reaches Blob storage today. `BLOB_READ_WRITE_TOKEN` is not required to run
+> the app; it's left in place for a planned future binary-upload path.
 
 ---
 
@@ -104,10 +98,7 @@ npx prisma generate
 # 5. Apply pending migrations to your Neon database
 npx prisma migrate deploy
 
-# 6. Start the Inngest dev server (in a separate terminal)
-npx inngest-cli@latest dev
-
-# 7. Start the Next.js dev server
+# 6. Start the Next.js dev server
 npm run dev
 ```
 
@@ -115,16 +106,84 @@ Open [http://localhost:3000](http://localhost:3000) to see the dashboard.
 
 ---
 
+## Local LLM Development (Docker)
+
+For fully offline development — no Anthropic/OpenAI keys, no cloud Neon project — `docker-compose.yml` runs the whole stack locally: Postgres + pgvector for the database, a [wsproxy](https://github.com/neondatabase/wsproxy) shim so `@prisma/adapter-neon` (which speaks Neon's `wss://` protocol) can talk to that plain Postgres container, and [LM Studio](https://lmstudio.ai)/`llmster` as an OpenAI-compatible local model server for both chat and embeddings.
+
+`lib/ai/providers.ts` switches providers based on whether `LLM_BASE_URL` is set: unset → Anthropic (chat) + OpenAI (embeddings) against the cloud; set → both chat and embeddings route through the same OpenAI-compatible endpoint at `LLM_BASE_URL` / `EMBEDDING_BASE_URL`. There is no separate fast-model routing locally — `primaryLlm`, `fastLlm`, and `fallbackLlm` all call the same `LLM_MODEL` when running local.
+
+Postgres and wsproxy always start; which `notebook` service (if any) starts alongside them depends on the Compose profile:
+
+| Profile | What it starts | When to use it |
+|---|---|---|
+| `local-dev` | `notebook` container only — reaches LM Studio on the host via `host.docker.internal` | **Default for development.** Run LM Studio yourself (GUI or `lms server start --port 1234`), load whatever models you want, then start just the app container. |
+| `phase2` | `llmster` container + `notebook` container | Fully self-contained, no host-installed LM Studio. Needs the NVIDIA Container Toolkit for GPU passthrough on Linux; on Apple Silicon it falls back to CPU-only inference (no Metal passthrough into the container). |
+| `ai-pc` | `llmster` container + `notebook-ai-pc` (pulls `wynderoem/wrp-notebook:latest` from Docker Hub — no local build) | A pre-provisioned "AI PC" — skips the `npm ci` + `next build` steps entirely. |
+
+```bash
+# Phase 1 (recommended) — LM Studio on the host, notebook in Docker
+lms server start --port 1234
+docker compose --profile local-dev --env-file .env.local up --build
+
+# Phase 2 — fully self-contained, llmster runs as a container too
+docker compose --profile phase2 --env-file .env.local up --build
+
+# AI-PC — pull the pre-built image, no build step
+docker compose --profile ai-pc --env-file .env.local up
+```
+
+The `phase2`/`ai-pc` `llmster` container auto-loads `gemma-4-2b-it` (chat) and `embedding-gemma-300m` (embeddings) on startup. If you load different models — either in the `local-dev` profile's host LM Studio, or by editing the `lms load` command for `phase2`/`ai-pc` — set `LLM_MODEL` / `EMBEDDING_MODEL` in `.env.local` to match exactly, or requests will 404 against LM Studio's model registry.
+
+Required `.env.local` values for this mode (see [Environment Variables](#environment-variables) for the rest):
+
+```bash
+LOCAL_POSTGRES="true"                        # routes lib/db/client.ts through the wsproxy shim instead of cloud Neon
+# The port in DATABASE_URL is not actually dialed — LOCAL_POSTGRES=true makes
+# lib/db/client.ts rewrite the proxy target to wsproxy:80/v1 regardless of
+# what's written here. Host only matters, but keep it pointed at the wsproxy service.
+DATABASE_URL="postgresql://postgres:postgres@wsproxy:5432/notebook?sslmode=disable"
+DIRECT_URL="postgresql://postgres:postgres@postgres:5432/notebook?sslmode=disable"
+
+LLM_BASE_URL="http://llmster:1234"           # host.docker.internal:1234 instead, for the local-dev profile
+ANTHROPIC_API_KEY="lm-studio"                # unused when LLM_BASE_URL is set — @ai-sdk/anthropic just expects a non-empty value
+LLM_MODEL="gemma-4-2b-it"                    # must match a model already loaded in LM Studio
+
+EMBEDDING_BASE_URL="http://llmster:1234/v1"
+EMBEDDING_API_KEY="lm-studio"
+EMBEDDING_MODEL="embedding-gemma-300m"
+EMBEDDING_DIMENSIONS="768"                    # must match the vector(N) column in prisma/schema.prisma
+```
+
+Once the containers are up, apply migrations and create an admin user the same way as [Database Setup](#database-setup) below — but run `npx prisma migrate deploy` from your host machine (not inside a container), so use the host-mapped port instead of the Docker service name:
+
+```bash
+DIRECT_URL="postgresql://postgres:postgres@localhost:5432/notebook?sslmode=disable" \
+  npx prisma migrate deploy
+```
+
+There's no Neon SQL Editor for the local Postgres container — run SQL directly against it instead:
+
+```bash
+docker exec -it wrp-notebook-postgres-1 psql -U postgres -d notebook \
+  -c "SELECT id, email, role FROM notebook.\"User\";"
+```
+
+---
+
 ## Environment Variables
 
-Create a `.env.local` file in the project root with the following values. All are required for the app to function.
+Create a `.env.local` file in the project root with the following values. Everything except Upstash and Blob is required for the app to function.
 
 ```bash
 # ─── Database (Neon) ───────────────────────────────────────────────────────────
-# Pooler endpoint — used at runtime by the Neon serverless driver
-DATABASE_URL="postgresql://neondb_owner:...@ep-xxx-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+# Pooler endpoint — used at runtime by the Neon serverless driver.
+# Use wrp_notebook_app (CRUD on schema "notebook", no DDL) — NOT neondb_owner.
+# See "Applying migrations" below for why the runtime credential must not have DDL rights.
+DATABASE_URL="postgresql://wrp_notebook_app:...@ep-xxx-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
-# Direct endpoint — used by Prisma CLI for migrations
+# Direct endpoint — used by Prisma CLI for migrations ONLY.
+# Not read by the app at runtime (see lib/db/client.ts) and not needed in Vercel's
+# deployed env vars. Only set this locally, transiently, when running a migration.
 DIRECT_URL="postgresql://neondb_owner:...@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 # Read-only connection to WRP property management tables (run scripts/setup-readonly-role.sql first)
@@ -144,15 +203,14 @@ OPENAI_API_KEY="sk-..."
 # Generate with: openssl rand -hex 32
 CREDENTIAL_ENCRYPTION_KEY="<64-hex-char-key>"
 
-# ─── Inngest (Background Jobs) ────────────────────────────────────────────────
-INNGEST_SIGNING_KEY="signkey-..."
-INNGEST_EVENT_KEY="..."
-
-# ─── Upstash Redis (Rate Limiting) ────────────────────────────────────────────
+# ─── Upstash Redis (Rate Limiting — optional) ─────────────────────────────────
+# If unset, rate limiting on /api/v1/* is simply disabled (no fallback limiter).
 UPSTASH_REDIS_REST_URL="https://..."
 UPSTASH_REDIS_REST_TOKEN="..."
 
-# ─── File Storage (Vercel Blob) ───────────────────────────────────────────────
+# ─── File Storage (Vercel Blob — currently unused, no call sites) ─────────────
+# Not read anywhere in the app today; safe to omit. Kept for a planned future
+# binary-upload path. See the note under "Required Services" above.
 BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 ```
 
@@ -165,6 +223,27 @@ BLOB_READ_WRITE_TOKEN="vercel_blob_rw_..."
 ```bash
 npx prisma migrate deploy
 ```
+
+### Applying migrations to production (deliberately manual)
+
+`DATABASE_URL` (the credential deployed to Vercel) is `wrp_notebook_app`, which only has
+`SELECT`/`INSERT`/`UPDATE`/`DELETE` on the `notebook` schema — no `CREATE`/`ALTER`/`DROP`.
+This is intentional: the running app should never hold a credential capable of changing
+its own schema. Vercel's build (`prisma generate && next build`) and CI never run
+`prisma migrate deploy`, so no DDL-capable credential exists in any deployed environment.
+
+To apply a new migration to the live database, run it manually from your machine using
+the `neondb_owner` connection string (get it from the Neon Console → Connection Details;
+keep it in a password manager, never in a committed file):
+
+```bash
+DIRECT_URL="postgresql://neondb_owner:...@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require" \
+  npx prisma migrate deploy
+```
+
+If a migration adds a new table, `wrp_notebook_app` will automatically get `SELECT`/
+`INSERT`/`UPDATE`/`DELETE` on it — this project's `ALTER DEFAULT PRIVILEGES` was already
+applied for the `notebook` schema. It will **not** get `CREATE`, by design.
 
 ### WRP property management read-only access
 
@@ -487,8 +566,8 @@ When adding a source via `POST /api/v1/notebooks/:id/sources`, set `type` to one
 | `text` | JSON body with `text` field | Chunks and embeds content directly |
 | `url` | JSON body with `url` field | Fetches page, strips HTML, chunks and embeds |
 | `youtube` | JSON body with `url` field | Fetches page content; full transcript requires YouTube Data API |
-| `pdf` | `multipart/form-data` with `file` field | Uploads to Vercel Blob, parses with pdf-parse, chunks and embeds |
-| `audio` | `multipart/form-data` with `file` field | Uploads to Vercel Blob; transcription via Whisper (coming soon) |
+| `pdf` | **Not** via this endpoint — use the two-phase flow: `POST /api/v1/sources/extract` (parses in-memory, never persisted) then `POST /api/v1/sources/commit` (saves + embeds, no file storage involved) |
+| `audio` | `multipart/form-data` with `file` field | ⚠️ Not functional yet — the uploaded buffer is decoded as UTF-8 text, which corrupts real audio files. Whisper transcription is not implemented. |
 
 ---
 
@@ -503,12 +582,6 @@ vercel --prod --scope bear-wynd-consultings-projects
 
 Add all environment variables listed above in **Vercel → Project Settings → Environment Variables**. The `NEXTAUTH_URL` must be set to the production URL (`https://wrp-notebook.vercel.app`).
 
-### Inngest on Vercel
-
-1. In the [Inngest dashboard](https://app.inngest.com), add a new app pointing to `https://wrp-notebook.vercel.app/api/inngest`
-2. Inngest will automatically discover and register the `process-source` function
-3. No separate worker deployment is needed — Inngest invokes the `/api/inngest` route directly
-
 ### Development commands
 
 ```bash
@@ -520,8 +593,6 @@ npx prisma studio          # Open database GUI
 npx prisma migrate dev     # Create and apply a new migration
 npx prisma migrate deploy  # Apply pending migrations (CI/production)
 npx prisma generate        # Regenerate Prisma client after schema change
-
-npx inngest-cli@latest dev  # Start local Inngest dev server
 ```
 
 ---

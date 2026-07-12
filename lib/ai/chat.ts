@@ -59,6 +59,13 @@ export async function streamChatResponse(opts: {
       ...truncatedHistory,
       { role: "user", content: opts.userMessage },
     ],
+    onFinish: async ({ text }) => {
+      await storeChatMessage({
+        sessionId: opts.sessionId,
+        role: "assistant",
+        content: text,
+      });
+    },
   });
 }
 

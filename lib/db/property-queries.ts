@@ -114,27 +114,35 @@ export async function getBuildingContextForAI(buildingId: string): Promise<strin
 
 type Row = Record<string, unknown>;
 
-const ROW_LIMIT = 50;
-
 const DB_QUERIES: Record<string, string> = {
   wrp_spaces:
-    `SELECT id, name, type, status, building, floor, area_sqft FROM spaces ORDER BY building, floor LIMIT ${ROW_LIMIT}`,
+    `SELECT unit_number, building, floor, sqft, monthly_rent, status, space_type, capacity,
+            (SELECT count(*) FROM spaces) AS total_spaces,
+            (SELECT count(*) FROM spaces WHERE status = 'occupied') AS occupied_count,
+            (SELECT count(*) FROM spaces WHERE status = 'available') AS available_count
+     FROM spaces ORDER BY building, floor LIMIT 10`,
   wrp_tenants:
-    `SELECT id, company_name, space_id, lease_start, lease_end, contact_email FROM tenants ORDER BY company_name LIMIT ${ROW_LIMIT}`,
+    `SELECT first_name, last_name, company, space_id, lease_start, lease_end, status, contact_role,
+            (SELECT count(*) FROM tenants) AS total_tenants,
+            (SELECT count(*) FROM tenants WHERE status = 'active') AS active_tenants
+     FROM tenants ORDER BY last_name LIMIT 10`,
   wrp_maintenance:
-    `SELECT id, space_id, type, status, reported_at, description FROM maintenance_requests ORDER BY reported_at DESC LIMIT ${ROW_LIMIT}`,
+    `SELECT * FROM maintenance_tickets ORDER BY created_at DESC LIMIT 5`,
   wrp_inquiries:
-    `SELECT id, company_name, inquiry_date, status, notes FROM inquiries ORDER BY inquiry_date DESC LIMIT ${ROW_LIMIT}`,
+    `SELECT * FROM inquiry_sessions ORDER BY created_at DESC LIMIT 5`,
+  wrp_leads:
+    `SELECT * FROM leads ORDER BY created_at DESC LIMIT 5`,
   wrp_communications:
-    `SELECT id, recipient, subject, sent_at, status FROM communications ORDER BY sent_at DESC LIMIT ${ROW_LIMIT}`,
+    `SELECT * FROM automated_reply_rules LIMIT 5`,
 };
 
 const DB_LABELS: Record<string, string> = {
   wrp_spaces: "WRP Spaces (available/occupied units)",
   wrp_tenants: "WRP Tenants (current lease holders)",
-  wrp_maintenance: "WRP Maintenance Requests",
-  wrp_inquiries: "WRP Inquiries (prospective tenants)",
-  wrp_communications: "WRP Communications (outbound messages)",
+  wrp_maintenance: "WRP Maintenance Tickets",
+  wrp_inquiries: "WRP Inquiry Sessions (prospective tenants)",
+  wrp_leads: "WRP Leads (prospective tenant pipeline)",
+  wrp_communications: "WRP Automated Reply Rules",
 };
 
 /**

@@ -44,12 +44,20 @@ export default async function DashboardLayout({
               {session.user.email}
             </span>
             {session.user.role === "admin" && (
-              <a
-                href="/settings/api-keys"
-                className="text-white/80 hover:text-white text-sm transition-colors"
-              >
-                API Keys
-              </a>
+              <>
+                <a
+                  href="/notebooks/all"
+                  className="text-white/80 hover:text-white text-sm transition-colors"
+                >
+                  All Notebooks
+                </a>
+                <a
+                  href="/settings/api-keys"
+                  className="text-white/80 hover:text-white text-sm transition-colors"
+                >
+                  API Keys
+                </a>
+              </>
             )}
             <a
               href="/api/auth/signout"
