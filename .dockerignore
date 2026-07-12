@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.vercel
+.env
+.env.local
+.env.production
+.env*.local
+coverage
+*.md
+.github
+Dockerfile*
+Containerfile*
+.dockerignore
+# Regenerated inside the container by `prisma generate` during the build stage.
+app/generated/prisma

@@ -1,0 +1,49 @@
+# Containerizes the whole app for Vercel's Dockerfile-based Functions
+# (Fluid compute). The filename is load-bearing — Vercel only picks up
+# container builds from a file named exactly `Dockerfile.vercel` at the repo
+# root. See docs/ or the PR description for the rollout/verification plan;
+# this must be validated on a preview deployment before it reaches production.
+#
+# node:20-bookworm-slim matches the Node 20 pinned in .github/workflows/ci.yml.
+# glibc-based (not alpine) so `sharp`'s prebuilt native bindings resolve cleanly.
+FROM node:20-bookworm-slim AS base
+WORKDIR /app
+
+# ── deps ─────────────────────────────────────────────────────────────────────
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
+
+# ── builder ──────────────────────────────────────────────────────────────────
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# ── runner ───────────────────────────────────────────────────────────────────
+FROM base AS runner
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+
+RUN groupadd --system --gid 1001 nodejs \
+  && useradd --system --uid 1001 --gid nodejs nextjs
+
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Note: prisma/schema.prisma's generator uses a custom `output` path
+# (app/generated/prisma, outside node_modules). Verified locally that this
+# does NOT need a separate COPY step — Turbopack fully inlines the generated
+# client into the compiled server chunks at build time; the generated .ts
+# source isn't read at runtime.
+
+USER nextjs
+
+# Local-run default only — Vercel injects its own $PORT at runtime, and
+# server.js reads process.env.PORT, so this is safely overridden in production.
+EXPOSE 3000
+ENV PORT=3000
+
+CMD ["node", "server.js"]
