@@ -1,15 +1,17 @@
 // WRP Notebook — Prisma Schema
 // Neon serverless PostgreSQL + pgvector
+// All notebook tables live in the "notebook" Postgres schema to prevent
+// Prisma migrations from touching WRP property management tables in "public".
 
 generator client {
   provider        = "prisma-client"
   output          = "../app/generated/prisma"
-  previewFeatures = ["postgresqlExtensions"]
+  previewFeatures = []
 }
 
 datasource db {
-  provider   = "postgresql"
-  extensions = [vector]
+  provider = "postgresql"
+  schemas  = ["notebook"]
 }
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -18,12 +20,16 @@ enum Visibility {
   PRIVATE  // only owner via UI
   INTERNAL // any WRP staff API key
   PUBLIC   // external API keys + website
+
+  @@schema("notebook")
 }
 
 enum ApiScope {
   ADMIN    // full CRUD + API key management
   INTERNAL // full CRUD on allowed notebooks
   EXTERNAL // read-only on public notebooks
+
+  @@schema("notebook")
 }
 
 enum SourceStatus {
@@ -31,6 +37,8 @@ enum SourceStatus {
   PROCESSING
   READY
   ERROR
+
+  @@schema("notebook")
 }
 
 // ─── Core Models ──────────────────────────────────────────────────────────────
@@ -53,15 +61,17 @@ model Notebook {
   @@index([ownerId])
   @@index([visibility])
   @@index([deletedAt])
+  @@schema("notebook")
 }
 
 model Source {
   id         String       @id @default(cuid())
   type       String       // pdf, url, youtube, audio, text
   title      String?
-  content    String?      // extracted full text
+  content    String?      // extracted full text (url/youtube/text sources)
   summary    String?
-  metadata   Json?
+  metadata   Json?        // { url } for url/youtube; { department, useCase, date } for pdf
+  structured Json?        // Editor.js OutputData — set by two-phase PDF commit route
   status     SourceStatus @default(PENDING)
   filePath   String?
   blobUrl    String?      // private Vercel Blob URL — NEVER exposed to clients
@@ -74,6 +84,8 @@ model Source {
   notebooks NotebookSource[]
   chunks    SourceChunk[]
   insights  SourceInsight[]
+
+  @@schema("notebook")
 }
 
 model SourceChunk {
@@ -81,10 +93,11 @@ model SourceChunk {
   sourceId   String
   source     Source  @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   content    String
-  embedding  Unsupported("vector(1536)")?
+  embedding  Unsupported("vector(768)")?
   chunkIndex Int
 
   @@index([sourceId])
+  @@schema("notebook")
 }
 
 model SourceInsight {
@@ -96,6 +109,7 @@ model SourceInsight {
   createdAt   DateTime @default(now())
 
   @@index([sourceId])
+  @@schema("notebook")
 }
 
 model Note {
@@ -109,6 +123,7 @@ model Note {
   notebooks NotebookNote[]
 
   @@index([deletedAt])
+  @@schema("notebook")
 }
 
 model ChatSession {
@@ -122,6 +137,7 @@ model ChatSession {
   messages ChatMessage[]
 
   @@index([notebookId])
+  @@schema("notebook")
 }
 
 model ChatMessage {
@@ -134,6 +150,7 @@ model ChatMessage {
   createdAt     DateTime    @default(now())
 
   @@index([chatSessionId])
+  @@schema("notebook")
 }
 
 // ─── Join Tables ──────────────────────────────────────────────────────────────
@@ -145,6 +162,7 @@ model NotebookSource {
   source     Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
   @@id([notebookId, sourceId])
+  @@schema("notebook")
 }
 
 model NotebookNote {
@@ -154,6 +172,7 @@ model NotebookNote {
   note       Note     @relation(fields: [noteId], references: [id], onDelete: Cascade)
 
   @@id([notebookId, noteId])
+  @@schema("notebook")
 }
 
 // ─── UI Authentication ────────────────────────────────────────────────────────
@@ -167,6 +186,7 @@ model User {
   updatedAt    DateTime @updatedAt
 
   @@index([email])
+  @@schema("notebook")
 }
 
 // ─── API Authentication ───────────────────────────────────────────────────────
@@ -189,6 +209,7 @@ model ApiKey {
 
   @@index([keyHash])
   @@index([keyPrefix])
+  @@schema("notebook")
 }
 
 // ─── Audit Logging ────────────────────────────────────────────────────────────
@@ -205,6 +226,7 @@ model AuditLog {
   @@index([actorId])
   @@index([resource])
   @@index([createdAt])
+  @@schema("notebook")
 }
 
 // ─── AI Provider Credentials ─────────────────────────────────────────────────
@@ -218,6 +240,7 @@ model Credential {
   updatedAt      DateTime @updatedAt
 
   @@unique([provider, name])
+  @@schema("notebook")
 }
 
 // ─── Property Management Models (Read-Only) ──────────────────────────────────
@@ -229,6 +252,8 @@ model Building {
   address String?
   units   Unit[]
   tenants Tenant[]
+
+  @@schema("notebook")
 }
 
 // @readonly — managed by WRP Property Management app
@@ -239,6 +264,8 @@ model Unit {
   building   Building @relation(fields: [buildingId], references: [id])
   tenant     Tenant?  @relation(fields: [tenantId], references: [id])
   tenantId   String?
+
+  @@schema("notebook")
 }
 
 // @readonly — managed by WRP Property Management app
@@ -249,4 +276,6 @@ model Tenant {
   buildingId String?
   building   Building? @relation(fields: [buildingId], references: [id])
   units      Unit[]
+
+  @@schema("notebook")
 }

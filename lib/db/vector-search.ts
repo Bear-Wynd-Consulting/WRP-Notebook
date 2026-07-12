@@ -24,6 +24,8 @@ export async function vectorSearchInNotebook(
   limit = 10
 ): Promise<VectorSearchResult[]> {
   const safeLimit = Math.min(limit, AI_LIMITS.MAX_CONTEXT_CHUNKS);
+  // pgvector requires bracket notation: [0.1, 0.2, ...] — not Prisma's {0.1,0.2} array literal
+  const vec = `[${embedding.join(",")}]`;
 
   // Safe: uses parameterized placeholders — no user input interpolated
   const results = await prisma.$queryRaw<VectorSearchResult[]>`
@@ -31,12 +33,12 @@ export async function vectorSearchInNotebook(
       sc.id,
       sc."sourceId",
       sc.content,
-      1 - (sc.embedding <=> ${embedding}::vector) AS similarity
-    FROM "SourceChunk" sc
-    JOIN "NotebookSource" ns ON ns."sourceId" = sc."sourceId"
+      1 - (sc.embedding <=> ${vec}::vector) AS similarity
+    FROM notebook."SourceChunk" sc
+    JOIN notebook."NotebookSource" ns ON ns."sourceId" = sc."sourceId"
     WHERE ns."notebookId" = ${notebookId}
       AND sc.embedding IS NOT NULL
-    ORDER BY sc.embedding <=> ${embedding}::vector
+    ORDER BY sc.embedding <=> ${vec}::vector
     LIMIT ${safeLimit}
   `;
 
@@ -59,8 +61,8 @@ export async function fullTextSearchInNotebook(
       sc."sourceId",
       sc.content,
       ts_rank(to_tsvector('english', sc.content), plainto_tsquery('english', ${query})) AS similarity
-    FROM "SourceChunk" sc
-    JOIN "NotebookSource" ns ON ns."sourceId" = sc."sourceId"
+    FROM notebook."SourceChunk" sc
+    JOIN notebook."NotebookSource" ns ON ns."sourceId" = sc."sourceId"
     WHERE ns."notebookId" = ${notebookId}
       AND to_tsvector('english', sc.content) @@ plainto_tsquery('english', ${query})
     ORDER BY similarity DESC

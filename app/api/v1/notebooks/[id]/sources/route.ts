@@ -12,7 +12,7 @@ import { createSourceSchema, paginationSchema } from "@/lib/validation/schemas";
 import { validateIngestUrl } from "@/lib/security/url-validator";
 import { validateUpload } from "@/lib/security/file-upload";
 import { prisma } from "@/lib/db/client";
-import { inngest } from "@/lib/jobs/client";
+import { processSourceSync } from "@/lib/jobs/process-source-sync";
 import type { RouteCtx } from '@/lib/types/route-context';
 
 export async function GET(
@@ -76,6 +76,14 @@ export async function POST(
         return apiError("file and type fields are required", "VALIDATION_ERROR", 400);
       }
 
+      if (type === "pdf") {
+        return apiError(
+          "PDF sources must use the two-phase editor flow",
+          "USE_EXTRACT_ENDPOINT",
+          400
+        );
+      }
+
       // Security: validate by magic bytes, not Content-Type
       const { safeName, detectedMimeType } = await validateUpload(file, type);
       const arrayBuffer = await file.arrayBuffer();
@@ -92,6 +100,14 @@ export async function POST(
       // JSON body (URL, text, YouTube)
       const body = await req.json();
       const parsed = createSourceSchema.parse(body);
+
+      if (parsed.type === "pdf") {
+        return apiError(
+          "PDF sources must use the two-phase editor flow",
+          "USE_EXTRACT_ENDPOINT",
+          400
+        );
+      }
 
       if (parsed.type === "url" && parsed.url) {
         // Security: SSRF protection — validate before fetching
@@ -122,11 +138,8 @@ export async function POST(
       },
     });
 
-    // Trigger background processing
-    await inngest.send({
-      name: "source/uploaded",
-      data: { sourceId: source.id },
-    });
+    // Process synchronously — response returns READY source
+    await processSourceSync(source.id);
 
     await createAuditLog({
       action: "source.create",
@@ -136,7 +149,8 @@ export async function POST(
       metadata: { notebookId: id, type: source.type },
     });
 
-    return Response.json({ data: toPublicSource(source) }, { status: 201 });
+    const ready = await prisma.source.findUniqueOrThrow({ where: { id: source.id } });
+    return Response.json({ data: toPublicSource(ready) }, { status: 201 });
   } catch (err) {
     return handleApiError(err, "POST /api/v1/notebooks/[id]/sources");
   }

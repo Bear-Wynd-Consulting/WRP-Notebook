@@ -75,6 +75,41 @@ export async function getNotebookForUser(
   });
 }
 
+/**
+ * Get a single notebook by id, ignoring ownership.
+ * Admin-only routes must check session.user.role === 'admin' before calling this.
+ */
+export async function getNotebookByIdAdmin(notebookId: string) {
+  return prisma.notebook.findFirst({
+    where: { id: notebookId, deletedAt: null },
+  });
+}
+
+/**
+ * Get every non-deleted notebook, ignoring ownership.
+ * Admin-only routes must check session.user.role === 'admin' before calling this.
+ */
+export async function getAllNotebooksAdmin() {
+  return prisma.notebook.findMany({
+    where: { deletedAt: null },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+/**
+ * Look up users by id (e.g. to resolve notebook owner emails for display).
+ * Admin-only routes must check session.user.role === 'admin' before calling this.
+ */
+export async function getUsersByIds(ids: string[]) {
+  if (ids.length === 0) return [];
+  return prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, email: true },
+  });
+}
+
 // ─── Sources ──────────────────────────────────────────────────────────────────
 
 /** Sources for a notebook — scoped via join table. */
@@ -89,6 +124,37 @@ export async function getSourcesForNotebook(notebookId: string) {
 
 export async function getSourceById(sourceId: string) {
   return prisma.source.findUnique({ where: { id: sourceId } });
+}
+
+/**
+ * Creates a Source from the two-phase PDF editor flow and attaches it to a notebook.
+ * Runs as a transaction so the notebook join is never orphaned.
+ */
+export async function createStructuredSource(data: {
+  notebookId: string;
+  title: string;
+  metadata: Record<string, string>;
+  structured: unknown;
+  rawText: string;
+  uploadedBy: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const source = await tx.source.create({
+      data: {
+        type: "pdf",
+        title: data.title,
+        content: data.rawText,
+        metadata: data.metadata as Record<string, string>,
+        structured: data.structured as Prisma.InputJsonValue,
+        status: "PROCESSING",
+        uploadedBy: data.uploadedBy,
+      },
+    });
+    await tx.notebookSource.create({
+      data: { notebookId: data.notebookId, sourceId: source.id },
+    });
+    return source;
+  });
 }
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
@@ -132,6 +198,34 @@ export async function getChatMessagesForSession(chatSessionId: string) {
   return prisma.chatMessage.findMany({
     where: { chatSessionId },
     orderBy: { createdAt: "asc" },
+  });
+}
+
+// ─── API Keys ─────────────────────────────────────────────────────────────────
+
+/** Create an API key restricted to a single notebook. Admin session routes only. */
+export async function createNotebookApiKey(data: {
+  name: string;
+  keyHash: string;
+  keyPrefix: string;
+  scope: "INTERNAL" | "EXTERNAL";
+  notebookId: string;
+  rateLimit: number;
+  expiresAt?: Date;
+  ownerId: string;
+}) {
+  return prisma.apiKey.create({
+    data: {
+      name: data.name,
+      keyHash: data.keyHash,
+      keyPrefix: data.keyPrefix,
+      scope: data.scope,
+      permissions: [],
+      notebookIds: [data.notebookId],
+      rateLimit: data.rateLimit,
+      expiresAt: data.expiresAt,
+      ownerId: data.ownerId,
+    },
   });
 }
 

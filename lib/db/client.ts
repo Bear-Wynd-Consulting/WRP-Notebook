@@ -12,6 +12,17 @@
  */
 import { PrismaClient } from "@/app/generated/prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
+import { neonConfig } from "@neondatabase/serverless";
+
+// @prisma/adapter-neon talks Neon's wss:// edge proxy protocol, which the
+// local Postgres container doesn't speak. LOCAL_POSTGRES routes it through
+// the wsproxy sidecar (docker-compose.yml) instead, which translates that
+// protocol to plain Postgres wire protocol. Never set in production.
+if (process.env.LOCAL_POSTGRES === "true") {
+  neonConfig.wsProxy = (host) => `${host}:80/v1`;
+  neonConfig.useSecureWebSocket = false;
+  neonConfig.pipelineConnect = false;
+}
 
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL!;

@@ -36,7 +36,7 @@ export function SourceCard({ source }: Props) {
 
       {source.status === "PENDING" && (
         <p className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#FFF3CD", color: "#856404" }}>
-          Awaiting processing. If this stays pending, check that INNGEST_SIGNING_KEY and INNGEST_EVENT_KEY are set.
+          Awaiting processing. This normally completes within the same upload request — if it stays pending, the request may have been interrupted (e.g. a large file timing out); try re-uploading.
         </p>
       )}
 

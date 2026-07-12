@@ -11,22 +11,27 @@ export const WRP_DATABASES = [
   },
   {
     id: "wrp_tenants",
-    label: "Tenants & Assets",
-    description: "Tenant records, assets, and tenant actions",
+    label: "Tenants",
+    description: "Tenant records, lease dates, and contact info",
   },
   {
     id: "wrp_maintenance",
-    label: "Maintenance",
-    description: "Maintenance tickets and ticket history",
+    label: "Maintenance Tickets",
+    description: "Open and historical maintenance tickets",
   },
   {
     id: "wrp_inquiries",
-    label: "Inquiries & Leads",
-    description: "Inquiry sessions, messages, leads, and screening logs",
+    label: "Inquiry Sessions",
+    description: "Prospective tenant inquiry sessions and messages",
+  },
+  {
+    id: "wrp_leads",
+    label: "Leads",
+    description: "Prospective tenant pipeline and lead screening logs",
   },
   {
     id: "wrp_communications",
-    label: "Automated Replies",
+    label: "Automated Reply Rules",
     description: "Automated reply rules and communication templates",
   },
 ] as const;

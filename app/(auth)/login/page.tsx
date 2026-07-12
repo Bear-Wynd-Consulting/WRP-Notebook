@@ -25,9 +25,9 @@ async function loginAction(formData: FormData) {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; registered?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, registered } = await searchParams;
   return (
     <main className="min-h-screen flex items-center justify-center bg-[var(--wrp-surface)]">
       <div className="w-full max-w-sm space-y-8 px-6">
@@ -49,6 +49,12 @@ export default async function LoginPage({
             Sign in to access your notebooks
           </p>
         </div>
+
+        {registered && (
+          <p className="text-sm text-center text-green-700">
+            Account created — sign in below.
+          </p>
+        )}
 
         {error && (
           <p className="text-sm text-center text-red-600">
@@ -103,6 +109,13 @@ export default async function LoginPage({
             Sign in
           </button>
         </form>
+
+        <p className="text-center text-sm" style={{ color: "var(--wrp-secondary)" }}>
+          Don&apos;t have an account?{" "}
+          <a href="/register" className="underline" style={{ color: "var(--wrp-primary)" }}>
+            Register
+          </a>
+        </p>
 
         <p
           className="text-center text-xs"
