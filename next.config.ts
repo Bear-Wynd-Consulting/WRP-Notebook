@@ -47,6 +47,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Minimal self-contained server output — required for Dockerfile.vercel's
+  // container image (see Dockerfile.vercel at repo root).
+  output: "standalone",
   experimental: {
     serverActions: {
       bodySizeLimit: "10mb", // Allow PDF uploads via Server Actions
