@@ -6,7 +6,10 @@
  * structure it as Editor.js JSON. The file is never persisted — it is garbage
  * collected after this response. No Vercel Blob or Inngest required.
  *
- * Returns: { structuredData: OutputData, rawText: string }
+ * A sparse/empty text layer (scanned or handwritten PDF) falls back to the
+ * `ocr` sidecar when OCR_ENABLED is set — see lib/ocr/client.ts.
+ *
+ * Returns: { structuredData: OutputData, rawText: string, source: "text-layer" | "ocr" }
  */
 import { NextRequest } from "next/server";
 import { generateText } from "ai";
@@ -15,6 +18,11 @@ import { validateUpload } from "@/lib/security/file-upload";
 import { handleApiError, apiError } from "@/lib/api/error-response";
 import { AI_LIMITS } from "@/lib/ai/cost-guard";
 import { fastLlm } from "@/lib/ai/providers";
+import { OCR_ENABLED, ocrExtractText, OcrUnavailableError } from "@/lib/ocr/client";
+
+const OCR_TEXT_DENSITY_THRESHOLD = parseInt(
+  process.env.OCR_TEXT_DENSITY_THRESHOLD ?? "100"
+);
 
 async function parsePdf(buffer: Buffer): Promise<{ text: string; numpages: number }> {
   // pdf-parse@2 exports PDFParse class (not a function). Use the class API directly.
@@ -74,14 +82,48 @@ export async function POST(req: NextRequest) {
     // Parse PDF in-memory — file is never written to disk or blob storage
     const arrayBuffer = await file.arrayBuffer();
     const parsed = await parsePdf(Buffer.from(arrayBuffer));
-    const rawText = parsed.text ?? "";
+    const textLayerText = parsed.text ?? "";
+    const charsPerPage =
+      parsed.numpages > 0
+        ? textLayerText.trim().length / parsed.numpages
+        : textLayerText.trim().length;
 
-    if (!rawText.trim()) {
-      return apiError(
-        "PDF contains no extractable text. Try a scanned PDF with OCR or use the Plain Text tab.",
-        "EMPTY_DOCUMENT",
-        422
-      );
+    let rawText = textLayerText;
+    let source: "text-layer" | "ocr" = "text-layer";
+
+    // Sparse/empty text layer usually means a scanned or handwritten PDF —
+    // fall back to the OCR sidecar instead of failing outright.
+    if (charsPerPage < OCR_TEXT_DENSITY_THRESHOLD) {
+      if (!OCR_ENABLED) {
+        return apiError(
+          "PDF contains no extractable text. Try a scanned PDF with OCR or use the Plain Text tab.",
+          "EMPTY_DOCUMENT",
+          422
+        );
+      }
+
+      try {
+        const ocrResult = await ocrExtractText(Buffer.from(arrayBuffer));
+        rawText = ocrResult.text;
+        source = "ocr";
+      } catch (err) {
+        if (err instanceof OcrUnavailableError) {
+          return apiError(
+            "OCR service is unavailable. Try again shortly or use the Plain Text tab.",
+            "OCR_UNAVAILABLE",
+            503
+          );
+        }
+        throw err;
+      }
+
+      if (!rawText.trim()) {
+        return apiError(
+          "PDF contains no extractable text, even after OCR. Try the Plain Text tab.",
+          "EMPTY_DOCUMENT",
+          422
+        );
+      }
     }
 
     // Truncate to stay within local model context limits (local 7B models need tighter cap)
@@ -120,7 +162,7 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    return Response.json({ structuredData, rawText });
+    return Response.json({ structuredData, rawText, source });
   } catch (err) {
     return handleApiError(err, "POST /api/v1/sources/extract");
   }

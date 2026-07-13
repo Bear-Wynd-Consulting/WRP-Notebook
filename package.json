@@ -9,9 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.71",
-    "@ai-sdk/openai": "^3.0.53",
-    "@ai-sdk/react": "^3.0.170",
+    "@ai-sdk/anthropic": "^3.0.78",
+    "@ai-sdk/openai": "^3.0.64",
+    "@ai-sdk/react": "^3.0.186",
     "@anthropic-ai/sdk": "^0.92.0",
     "@editorjs/editorjs": "^2.31.6",
     "@editorjs/header": "^2.8.8",
@@ -22,19 +22,19 @@
     "@prisma/client": "^7.8.0",
     "@types/sanitize-html": "^2.16.1",
     "@upstash/ratelimit": "^2.0.8",
-    "@upstash/redis": "^1.37.0",
+    "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.3.3",
     "ai": "^6.0.158",
     "bcryptjs": "^3.0.3",
-    "next": "16.2.4",
+    "next": "16.2.6",
     "next-auth": "^5.0.0-beta.30",
     "openai": "^4",
     "pdf-parse": "^2.4.5",
     "prisma": "^7.8.0",
-    "react": "19.2.5",
-    "react-dom": "19.2.5",
-    "sanitize-html": "^2.17.3",
-    "zod": "^4.3.6"
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "sanitize-html": "^2.17.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -45,7 +45,7 @@
     "@types/react-dom": "^19",
     "dotenv": "^17.4.2",
     "eslint": "^9",
-    "eslint-config-next": "16.2.4",
+    "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

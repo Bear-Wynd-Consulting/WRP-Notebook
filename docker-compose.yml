@@ -47,6 +47,27 @@ services:
       postgres:
         condition: service_healthy
 
+  # ── OCR sidecar (handwritten/scanned PDF fallback) ────────────────────────
+  # No profile — always started, like postgres/wsproxy, since the CPU-only
+  # `stub`/`got-ocr2` engines are meant to run everywhere by default. See
+  # docs/ocr-handwritten-pdf-evaluation.md for why this isn't folded into
+  # llmster (LM Studio only speaks OpenAI-compatible chat/embeddings, not a
+  # PDF-in/text-out contract).
+  ocr:
+    build: ./ocr
+    ports:
+      - "8000:8000"
+    environment:
+      OCR_ENGINE: "${OCR_ENGINE:-stub}"
+    volumes:
+      - ocr-model-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   # ── Phase 2 llmster service ───────────────────────────────────────────────
   llmster:
     profiles: [phase2, ai-pc]
@@ -82,6 +103,8 @@ services:
         condition: service_healthy
       wsproxy:
         condition: service_started
+      ocr:
+        condition: service_healthy
     env_file:
       - .env.local
 
@@ -96,6 +119,8 @@ services:
         condition: service_healthy
       wsproxy:
         condition: service_started
+      ocr:
+        condition: service_healthy
     env_file:
       - .env.local
 
@@ -111,6 +136,8 @@ services:
     depends_on:
       wsproxy:
         condition: service_started
+      ocr:
+        condition: service_healthy
     env_file:
       - .env.local
     extra_hosts:
@@ -119,3 +146,4 @@ services:
 volumes:
   llmster-state:
   postgres-data:
+  ocr-model-cache:
