@@ -1,13 +1,11 @@
 """OCR engine abstraction.
 
-`recognize()` takes rasterized page images and returns extracted text. The
-model-loading code path (GotOcr2Engine) is untested in this repo's CI/sandbox
-environment — it needs network access to Hugging Face to download weights,
-which was unavailable when this sidecar was built (see
-docs/ocr-handwritten-pdf-evaluation.md and the OCR-0 ticket in
-docs/ocr-handwritten-pdf-sprint-plan.md). Whoever runs this on real hardware
-should smoke-test GotOcr2Engine directly before flipping OCR_ENGINE=got-ocr2
-in production, and fill in the CPU latency numbers OCR-0 was meant to produce.
+`recognize()` takes rasterized page images and returns extracted text.
+GotOcr2Engine is not covered by this repo's automated test suite — it needs
+real model weights and takes several minutes per call — but has been run
+manually end-to-end (see docs/ocr-handwritten-pdf-sprint-plan.md, OCR-0/OCR-3).
+CPU inference is confirmed too slow for the current synchronous request
+design; see that doc's "Remaining Work" for the implied async rework.
 
 StubEngine exists so the FastAPI plumbing, rasterization, and the extract-route
 integration can all be built and tested end-to-end without model weights.
@@ -39,15 +37,21 @@ class StubEngine(OcrEngine):
 
 
 class GotOcr2Engine(OcrEngine):
-    """Real engine: stepfun-ai/GOT-OCR2_0 via transformers.
+    """Real engine: stepfun-ai/GOT-OCR-2.0-hf via transformers.
 
-    NOT exercised by this repo's test suite — instantiating this class
-    downloads ~1-2GB of weights from Hugging Face on first use. Load lazily
+    Not covered by this repo's automated test suite — instantiating this class
+    downloads ~1-2GB of weights from Hugging Face on first use, and CPU
+    inference measured ~3.6+ min/page even once loaded. Load lazily
     (in __init__, not at import time) so importing this module never triggers
     a network call.
     """
 
-    MODEL_ID = "stepfun-ai/GOT-OCR2_0"
+    # The "-hf" repo has a native transformers integration (model_type
+    # "got_ocr2", GotOcr2ForConditionalGeneration/GotOcr2Config) — no
+    # trust_remote_code needed. stepfun-ai/GOT-OCR2_0 (no "-hf" suffix) only
+    # ships legacy custom modeling code whose GOTConfig class
+    # AutoModelForImageTextToText doesn't recognize.
+    MODEL_ID = "stepfun-ai/GOT-OCR-2.0-hf"
 
     def __init__(self) -> None:
         import torch
@@ -65,10 +69,14 @@ class GotOcr2Engine(OcrEngine):
         page_texts = []
         for image in images:
             inputs = self._processor(image, return_tensors="pt").to(self._device)
+            input_length = inputs["input_ids"].shape[1]
             with self._torch.no_grad():
                 generated = self._model.generate(**inputs, max_new_tokens=1024)
+            # generate() returns the prompt tokens followed by the new ones —
+            # decoding the full sequence echoes the chat-template prompt
+            # ("system\n...user\n...assistant\n") ahead of the actual OCR text.
             page_texts.append(
-                self._processor.decode(generated[0], skip_special_tokens=True)
+                self._processor.decode(generated[0, input_length:], skip_special_tokens=True)
             )
         return "\n\n".join(page_texts)
 

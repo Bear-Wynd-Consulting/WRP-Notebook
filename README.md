@@ -112,7 +112,7 @@ For fully offline development — no Anthropic/OpenAI keys, no cloud Neon projec
 
 `lib/ai/providers.ts` switches providers based on whether `LLM_BASE_URL` is set: unset → Anthropic (chat) + OpenAI (embeddings) against the cloud; set → both chat and embeddings route through the same OpenAI-compatible endpoint at `LLM_BASE_URL` / `EMBEDDING_BASE_URL`. There is no separate fast-model routing locally — `primaryLlm`, `fastLlm`, and `fallbackLlm` all call the same `LLM_MODEL` when running local.
 
-Postgres and wsproxy always start; which `notebook` service (if any) starts alongside them depends on the Compose profile:
+Postgres, wsproxy, and the `ocr` sidecar always start; which `notebook` service (if any) starts alongside them depends on the Compose profile:
 
 | Profile | What it starts | When to use it |
 |---|---|---|
@@ -167,6 +167,19 @@ There's no Neon SQL Editor for the local Postgres container — run SQL directly
 docker exec -it wrp-notebook-postgres-1 psql -U postgres -d notebook \
   -c "SELECT id, email, role FROM notebook.\"User\";"
 ```
+
+### OCR sidecar (handwritten/scanned PDF fallback)
+
+The `ocr` service (`./ocr`, FastAPI) always starts alongside Postgres/wsproxy in every profile. It kicks in when a PDF upload's text layer is too sparse — see [`ocr/README.md`](ocr/README.md) and [`docs/ocr-handwritten-pdf-sprint-plan.md`](docs/ocr-handwritten-pdf-sprint-plan.md) for engine details and current verification status. Add to `.env.local`:
+
+```bash
+OCR_ENABLED="true"
+OCR_BASE_URL="http://ocr:8000"
+OCR_TEXT_DENSITY_THRESHOLD="100"
+OCR_ENGINE="stub"                            # "stub" (default, no weights) or "got-ocr2" (real model)
+```
+
+`OCR_ENGINE=got-ocr2` downloads ~1-2GB of weights from Hugging Face on first `/ocr` call and is confirmed slow — measured ~3.6+ min/page of CPU inference even with weights cached. If you turn it on, also raise `OCR_TIMEOUT_MS` (default 60000) well past that, or every matching request will time out.
 
 ---
 

@@ -1,5 +1,5 @@
 fastapi==0.121.3
-uvicorn[standard]==0.39.1
+uvicorn[standard]==0.34.0
 python-multipart==0.0.21
 pymupdf==1.26.6
 pillow==12.1.0
@@ -10,6 +10,13 @@ pillow==12.1.0
 torch==2.13.0
 transformers==4.57.1
 accelerate==1.11.0
+# Not required by GotOcr2Engine's current model (stepfun-ai/GOT-OCR-2.0-hf,
+# a native transformers integration) — these were needed by the legacy
+# stepfun-ai/GOT-OCR2_0 remote-code path tried first. Kept so a future model
+# swap that does need them doesn't require another rebuild.
+torchvision==0.28.0
+verovio==6.2.1
+tiktoken==0.13.0
 
 pytest==9.0.2
 httpx==0.28.1
