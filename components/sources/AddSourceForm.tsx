@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition, lazy, Suspense } from "react";
 import type { OutputData } from "@editorjs/editorjs";
 import { addTextOrUrlSource } from "@/app/(dashboard)/notebooks/[id]/actions";
+import type { ContractFields } from "@/lib/validation/contract-schema";
 
 // Lazy-load the Editor.js component — it requires the DOM and must stay client-only
 const StructuredEditor = lazy(() => import("./StructuredEditor"));
@@ -46,6 +47,9 @@ export function AddSourceForm({ notebookId, errorCode }: Props) {
   const [extractedData, setExtractedData] = useState<{
     structuredData: OutputData;
     rawText: string;
+    isContract: boolean;
+    contractFields: ContractFields | null;
+    source: "text-layer" | "ocr";
   } | null>(null);
 
   const formRef = useRef<HTMLFormElement>(null);
@@ -89,7 +93,13 @@ export function AddSourceForm({ notebookId, errorCode }: Props) {
         throw new Error((body as { error?: string }).error ?? "Extraction failed");
       }
 
-      const data = await res.json() as { structuredData: OutputData; rawText: string };
+      const data = await res.json() as {
+        structuredData: OutputData;
+        rawText: string;
+        isContract: boolean;
+        contractFields: ContractFields | null;
+        source: "text-layer" | "ocr";
+      };
       setExtractedData(data);
       setPdfPhase("review");
     } catch (err) {
@@ -131,6 +141,9 @@ export function AddSourceForm({ notebookId, errorCode }: Props) {
             initialData={extractedData.structuredData}
             rawText={extractedData.rawText}
             notebookId={notebookId}
+            isContract={extractedData.isContract}
+            contractFields={extractedData.contractFields}
+            extractionSource={extractedData.source}
             onCommitSuccess={() => {
               setPdfPhase("done");
               setExtractedData(null);
@@ -199,6 +212,10 @@ export function AddSourceForm({ notebookId, errorCode }: Props) {
               PDF files only. The AI will extract and structure the content for you to review before saving.
             </p>
           </div>
+          <label className="flex items-center gap-2 text-sm" style={{ color: "var(--wrp-text)" }}>
+            <input name="isContract" type="checkbox" value="true" />
+            This is a lease/contract document — extract tenant, rent, and lease dates
+          </label>
           <button
             type="submit"
             disabled={pdfPhase === "extracting"}

@@ -5,6 +5,7 @@
  * schemas before processing. Never access req.body without validation.
  */
 import { z } from "zod";
+import { contractFieldsSchema } from "./contract-schema";
 
 // ─── Notebooks ────────────────────────────────────────────────────────────────
 
@@ -30,25 +31,32 @@ export const createSourceSchema = z.object({
 });
 
 /** Two-phase PDF commit: confirmed Editor.js data + document metadata */
-export const commitSourceSchema = z.object({
-  notebookId: z.string().min(1),
-  metadata: z.object({
-    department: z.string().max(200).trim().optional().default(""),
-    useCase: z.string().max(500).trim().optional().default(""),
-    date: z.string().max(20).trim().optional().default(""),
-  }),
-  structuredData: z.object({
-    time: z.number(),
-    blocks: z.array(
-      z.object({
-        type: z.string(),
-        data: z.record(z.string(), z.unknown()),
-      })
-    ),
-    version: z.string().optional(),
-  }),
-  rawText: z.string().max(500_000),
-});
+export const commitSourceSchema = z
+  .object({
+    notebookId: z.string().min(1),
+    metadata: z.object({
+      department: z.string().max(200).trim().optional().default(""),
+      useCase: z.string().max(500).trim().optional().default(""),
+      date: z.string().max(20).trim().optional().default(""),
+    }),
+    isContract: z.boolean().optional().default(false),
+    contractFields: contractFieldsSchema.optional(),
+    structuredData: z.object({
+      time: z.number(),
+      blocks: z.array(
+        z.object({
+          type: z.string(),
+          data: z.record(z.string(), z.unknown()),
+        })
+      ),
+      version: z.string().optional(),
+    }),
+    rawText: z.string().max(500_000),
+  })
+  .refine((data) => !data.isContract || !!data.contractFields, {
+    message: "contractFields is required when isContract is true",
+    path: ["contractFields"],
+  });
 
 // ─── Notes ────────────────────────────────────────────────────────────────────
 

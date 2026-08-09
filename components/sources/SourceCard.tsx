@@ -1,4 +1,5 @@
 import type { Source } from "@/app/generated/prisma/client";
+import type { ContractFields } from "@/lib/validation/contract-schema";
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   PENDING: { bg: "#FFF3CD", text: "#856404", label: "Pending" },
@@ -13,6 +14,8 @@ interface Props {
 
 export function SourceCard({ source }: Props) {
   const status = STATUS_STYLES[source.status] ?? STATUS_STYLES.PENDING;
+  const metadata = source.metadata as { documentType?: string; contract?: ContractFields } | null;
+  const contract = metadata?.documentType === "contract" ? metadata.contract : null;
 
   return (
     <div
@@ -26,13 +29,34 @@ export function SourceCard({ source }: Props) {
         >
           {source.title ?? source.type.toUpperCase()}
         </p>
-        <span
-          className="px-2 py-0.5 rounded text-xs font-medium shrink-0"
-          style={{ backgroundColor: status.bg, color: status.text }}
-        >
-          {status.label}
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {contract && (
+            <span
+              className="px-2 py-0.5 rounded text-xs font-medium"
+              style={{ backgroundColor: "var(--wrp-accent)", color: "var(--wrp-primary)" }}
+            >
+              Contract
+            </span>
+          )}
+          <span
+            className="px-2 py-0.5 rounded text-xs font-medium"
+            style={{ backgroundColor: status.bg, color: status.text }}
+          >
+            {status.label}
+          </span>
+        </div>
       </div>
+
+      {contract && (
+        <p className="text-xs" style={{ color: "var(--wrp-text)" }}>
+          {contract.tenantName && contract.tenantName !== "unclear"
+            ? contract.tenantName
+            : "Tenant: unknown"}
+          {contract.leaseEndDate && contract.leaseEndDate !== "unclear"
+            ? ` · Lease ends ${contract.leaseEndDate}`
+            : ""}
+        </p>
+      )}
 
       {source.status === "PENDING" && (
         <p className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#FFF3CD", color: "#856404" }}>

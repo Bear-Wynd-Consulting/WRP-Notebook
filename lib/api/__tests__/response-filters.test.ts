@@ -75,6 +75,8 @@ describe("Response Filters", () => {
         fileSize: 1024,
         createdAt: now,
         updatedAt: now,
+        documentType: null,
+        contract: null,
       });
 
       assert.strictEqual((result as any).blobUrl, undefined);
@@ -82,6 +84,58 @@ describe("Response Filters", () => {
       assert.strictEqual((result as any).content, undefined);
       assert.strictEqual((result as any).metadata, undefined);
       assert.strictEqual((result as any).filePath, undefined);
+    });
+
+    test("should expose whitelisted contract fields when documentType is contract", () => {
+      const now = new Date();
+      const contract = {
+        tenantName: "Acme Corp",
+        rentalRate: "$2,400.00",
+        rentalFrequency: "monthly",
+        leaseStartDate: "2025-01-01",
+        leaseEndDate: "2026-12-31",
+        unitIdentifier: "Suite 204",
+        renewalTerms: "Automatic 1-year renewal unless 60-day notice given.",
+        autoRenew: true,
+        confidence: "high",
+      };
+      const source: any = {
+        id: "src_456",
+        type: "pdf",
+        title: "Lease — Acme Corp",
+        content: "Full lease text",
+        summary: null,
+        metadata: { documentType: "contract", contract },
+        structured: { time: 1, blocks: [], version: "2.29.0" },
+        status: "READY",
+        filePath: null,
+        blobUrl: "https://blob.url/private",
+        mimeType: "application/pdf",
+        fileSize: 2048,
+        uploadedBy: "user_456",
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const result = toPublicSource(source);
+
+      assert.deepStrictEqual(result, {
+        id: "src_456",
+        type: "pdf",
+        title: "Lease — Acme Corp",
+        summary: null,
+        status: "READY",
+        mimeType: "application/pdf",
+        fileSize: 2048,
+        createdAt: now,
+        updatedAt: now,
+        documentType: "contract",
+        contract,
+      });
+
+      assert.strictEqual((result as any).blobUrl, undefined);
+      assert.strictEqual((result as any).uploadedBy, undefined);
+      assert.strictEqual((result as any).structured, undefined);
     });
   });
 

@@ -21,6 +21,38 @@ import { prisma } from "@/lib/db/client";
 import { commitSourceSchema } from "@/lib/validation/schemas";
 import { generateEmbeddings } from "@/lib/ai/task-aware-embed";
 import { AI_LIMITS } from "@/lib/ai/cost-guard";
+import { stripHtml } from "@/lib/security/sanitize";
+import type { ContractFields } from "@/lib/validation/contract-schema";
+
+/** "unclear"/null are left as-is; only ever-present free text needs stripping. */
+function sanitizeField(value: string | null): string | null {
+  return value === null || value === "unclear" ? value : stripHtml(value);
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Contract dates feed a real database sync — only accept "unclear" or a valid ISO date. */
+function sanitizeDate(value: string | null): string {
+  if (value === null || value === "unclear" || !ISO_DATE.test(value)) return "unclear";
+  return value;
+}
+
+function buildContractMetadata(fields: ContractFields) {
+  return {
+    documentType: "contract" as const,
+    contract: {
+      tenantName: sanitizeField(fields.tenantName),
+      rentalRate: sanitizeField(fields.rentalRate),
+      rentalFrequency: fields.rentalFrequency,
+      leaseStartDate: sanitizeDate(fields.leaseStartDate),
+      leaseEndDate: sanitizeDate(fields.leaseEndDate),
+      unitIdentifier: sanitizeField(fields.unitIdentifier),
+      renewalTerms: sanitizeField(fields.renewalTerms),
+      autoRenew: fields.autoRenew,
+      confidence: fields.confidence,
+    },
+  };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,7 +62,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { notebookId, metadata, structuredData, rawText } =
+    const { notebookId, metadata, isContract, contractFields, structuredData, rawText } =
       commitSourceSchema.parse(body);
 
     // IDOR check — user must own the notebook
@@ -39,16 +71,21 @@ export async function POST(req: NextRequest) {
       return apiError("Notebook not found", "NOT_FOUND", 404);
     }
 
-    const title =
-      metadata.useCase?.trim() ||
-      metadata.department?.trim() ||
-      "Untitled Document";
+    const metadataToStore = isContract && contractFields
+      ? buildContractMetadata(contractFields)
+      : metadata;
+
+    const title = isContract && contractFields
+      ? contractFields.tenantName && contractFields.tenantName !== "unclear"
+        ? `Lease — ${contractFields.tenantName}`
+        : "Untitled Contract"
+      : metadata.useCase?.trim() || metadata.department?.trim() || "Untitled Document";
 
     // Create source record in PROCESSING state (transaction with NotebookSource join)
     const source = await createStructuredSource({
       notebookId,
       title,
-      metadata,
+      metadata: metadataToStore,
       structured: structuredData,
       rawText,
       uploadedBy: session.user.id,
@@ -113,7 +150,7 @@ export async function POST(req: NextRequest) {
       actorType: "user",
       actorId: session.user.id,
       resource: `source:${source.id}`,
-      metadata: { notebookId, type: "pdf", chunksEmbedded },
+      metadata: { notebookId, type: "pdf", documentType: isContract ? "contract" : "pdf", chunksEmbedded },
     });
 
     return Response.json(

@@ -12,6 +12,7 @@ import type {
   ChatMessage,
   ApiKey,
 } from "@/app/generated/prisma/client";
+import type { ContractFields } from "@/lib/validation/contract-schema";
 
 // ─── Notebooks ────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ export function toPublicNotebook(nb: Notebook) {
 
 export function toPublicSource(src: Source) {
   // Omit blobUrl (internal storage path), uploadedBy (internal)
+  const metadata = src.metadata as { documentType?: string; contract?: ContractFields } | null;
+  const isContract = metadata?.documentType === "contract";
   return {
     id: src.id,
     type: src.type,
@@ -41,6 +44,8 @@ export function toPublicSource(src: Source) {
     fileSize: src.fileSize,
     createdAt: src.createdAt,
     updatedAt: src.updatedAt,
+    documentType: isContract ? "contract" : null,
+    contract: isContract ? metadata!.contract ?? null : null,
   };
 }
 

@@ -133,7 +133,7 @@ export async function getSourceById(sourceId: string) {
 export async function createStructuredSource(data: {
   notebookId: string;
   title: string;
-  metadata: Record<string, string>;
+  metadata: Record<string, unknown>;
   structured: unknown;
   rawText: string;
   uploadedBy: string;
@@ -144,7 +144,7 @@ export async function createStructuredSource(data: {
         type: "pdf",
         title: data.title,
         content: data.rawText,
-        metadata: data.metadata as Record<string, string>,
+        metadata: data.metadata as Prisma.InputJsonValue,
         structured: data.structured as Prisma.InputJsonValue,
         status: "PROCESSING",
         uploadedBy: data.uploadedBy,
